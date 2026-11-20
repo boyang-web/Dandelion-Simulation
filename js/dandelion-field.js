@@ -4,16 +4,16 @@ import { Dandelion } from './dandelion.js';
 /* ------------------------------------------------------------------ */
 /*  Wild dandelions                                                    */
 /*                                                                     */
-/*  Mode 2 plants are deliberately not copies of the hero: they have    */
-/*  fewer seeds, never regrow, release their seeds slowly on their own, */
-/*  and let their stem fade after a short life.                         */
+/*  Planted dandelions have fewer seeds, never regrow, release their    */
+/*  seeds slowly on their own, and let their stem fade after a short    */
+/*  life. They are never created automatically.                         */
 /* ------------------------------------------------------------------ */
 
 const WILD_SLOTS = 120;
 const WILD_SEEDS = 200;
 
 export class DandelionField {
-  constructor({ scene, camera, renderer, wind, maxPlants = 8 }) {
+  constructor({ scene, camera, renderer, wind, maxPlants = 10 }) {
     this.scene = scene;
     this.camera = camera;
     this.renderer = renderer;
@@ -25,6 +25,27 @@ export class DandelionField {
 
   get count() {
     return this.plants.length;
+  }
+
+  stats() {
+    let head = 0;
+    let flying = 0;
+    let speed = 0;
+    for (const plant of this.plants) {
+      head += plant.headCount;
+      for (const seed of plant.seeds) {
+        if (seed.active && seed.state === 2) {
+          flying++;
+          speed += seed.vel.length();
+        }
+      }
+    }
+    return {
+      plants: this.plants.length,
+      head,
+      flying,
+      avgSpeed: flying ? speed / flying : 0
+    };
   }
 
   spawnAt(point) {

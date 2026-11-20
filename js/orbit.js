@@ -10,12 +10,11 @@ import * as THREE from 'three';
 
 export class OrbitRig {
   constructor(camera, canvas, {
-    target = new THREE.Vector3(0, 2.3, 0.02),
-    minRadius = 6.8,
-    maxRadius = 15.5,
-    minPitch = 0.02,
-    maxPitch = 0.38,
-    maxYaw = 0.85
+    target = new THREE.Vector3(0, 2.0, 0.02),
+    minRadius = 2.5,
+    maxRadius = 32,
+    minPitch = 0,
+    maxPitch = Math.PI / 2 - 0.02
   } = {}) {
     this.camera = camera;
     this.canvas = canvas;
@@ -24,7 +23,6 @@ export class OrbitRig {
     this.maxRadius = maxRadius;
     this.minPitch = minPitch;
     this.maxPitch = maxPitch;
-    this.maxYaw = maxYaw;
 
     this.radius = 9.4;
     this.yaw = 0;
@@ -104,7 +102,9 @@ export class OrbitRig {
         const dy = centroid.y - this.lastCentroid.y;
         this.lastCentroid = centroid;
         if (dx || dy) {
-          this.yaw = THREE.MathUtils.clamp(this.yaw - dx * 0.0032, -this.maxYaw, this.maxYaw);
+          this.yaw -= dx * 0.0032;
+          if (this.yaw > Math.PI) this.yaw -= Math.PI * 2;
+          else if (this.yaw < -Math.PI) this.yaw += Math.PI * 2;
           this.pitch = THREE.MathUtils.clamp(this.pitch - dy * 0.0030, this.minPitch, this.maxPitch);
           this.hasView = true;
         }
@@ -139,7 +139,9 @@ export class OrbitRig {
       const dy = e.clientY - this.lastY;
       this.lastX = e.clientX;
       this.lastY = e.clientY;
-      this.yaw = THREE.MathUtils.clamp(this.yaw - dx * 0.0032, -this.maxYaw, this.maxYaw);
+      this.yaw -= dx * 0.0032;
+      if (this.yaw > Math.PI) this.yaw -= Math.PI * 2;
+      else if (this.yaw < -Math.PI) this.yaw += Math.PI * 2;
       this.pitch = THREE.MathUtils.clamp(this.pitch - dy * 0.0030, this.minPitch, this.maxPitch);
       this.hasView = true;
       this._apply();
@@ -200,7 +202,7 @@ export class OrbitRig {
     const dy = this.camera.position.y - this.target.y;
     const dz = this.camera.position.z - this.target.z;
     this.radius = THREE.MathUtils.clamp(Math.hypot(dx, dy, dz), this.minRadius, this.maxRadius);
-    this.yaw = THREE.MathUtils.clamp(Math.atan2(dx, dz), -this.maxYaw, this.maxYaw);
+    this.yaw = Math.atan2(dx, dz);
     this.pitch = THREE.MathUtils.clamp(
       Math.asin(THREE.MathUtils.clamp(dy / this.radius, -1, 1)),
       this.minPitch,

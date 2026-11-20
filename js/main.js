@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { WindField } from './wind.js';
 import { createWorld } from './world.js';
-import { Dandelion } from './dandelion.js';
+import { DANDELION_PARAMS } from './dandelion.js';
 import { DandelionField } from './dandelion-field.js';
 import { OrbitRig } from './orbit.js';
 import { Sky } from './sky.js';
@@ -90,10 +90,13 @@ scene.add(hemi, keyLight, fill, rim);
 
 const wind = new WindField(camera);
 const world = createWorld(scene, { camera });
-const dandelion = new Dandelion({ scene, camera, renderer, wind });
 const field = new DandelionField({ scene, camera, renderer, wind });
 const orbit = new OrbitRig(camera, canvas, {
-  target: new THREE.Vector3(0, 2.3, 0.02)
+  target: new THREE.Vector3(0, 2.0, 0.02),
+  minRadius: 2.5,
+  maxRadius: 32,
+  minPitch: 0,
+  maxPitch: Math.PI / 2 - 0.02
 });
 orbit.onDragStart = () => wind.setEnabled(false);
 orbit.onDragEnd = () => wind.setEnabled(true);
@@ -101,7 +104,6 @@ orbit.onDragEnd = () => wind.setEnabled(true);
 const sky = new Sky({
   wind,
   world,
-  dandelion,
   keyLight,
   hemi,
   fill,
@@ -171,7 +173,7 @@ let devConsole = null;
 if (isDev) {
   devConsole = createDevConsole({
     wind,
-    dandelion,
+    dandelion: { params: DANDELION_PARAMS },
     sky,
     world,
     fireflies: world.fireflies,
@@ -188,7 +190,6 @@ const hintMouse = document.querySelector('.hint__text--mouse');
 const hintTouch = document.querySelector('.hint__text--touch');
 if (hintMouse) hintMouse.textContent = '滑过草地 · 起风　·　拖动 · 视角　·　点击 · 种植';
 if (hintTouch) hintTouch.textContent = '单指滑过 · 起风　·　双指 · 视角　·　轻点 · 种植';
-const sigilEl = document.getElementById('sigil');
 
 /* ------------------------------------------------------------------ */
 /* ui                                                                  */
@@ -205,9 +206,7 @@ function updateUI() {
     lastShownWind = shown;
   }
 
-  if (sigilEl) sigilEl.classList.toggle('is-windy', wind.strength > 0.08);
-
-  if (!interacted && dandelion.everDetached) {
+  if (!interacted && (wind.strength > 0.12 || field.count > 0 || orbit.hasView)) {
     interacted = true;
     document.body.classList.add('interacted');
     hint.setAttribute('aria-hidden', 'true');
@@ -261,15 +260,7 @@ function finishTap(e) {
 
   const point = hits[0].point;
   if (Math.abs(point.x) > 20 || point.z < -30 || point.z > 12) return;
-  if (Math.hypot(point.x, point.z) < 1.0) return;
   field.spawnAt(point);
-
-  if (sigilEl) {
-    sigilEl.classList.remove('is-pulse');
-    void sigilEl.offsetWidth;
-    sigilEl.classList.add('is-pulse');
-    setTimeout(() => sigilEl.classList.remove('is-pulse'), 900);
-  }
 }
 
 canvas.addEventListener('pointerup', finishTap);
@@ -311,13 +302,14 @@ function updateCamera(t) {
 
 let autoClock = 0;
 const autoHead = new THREE.Vector2();
+const AUTO_ANCHOR = new THREE.Vector3(0, 2.56, 0.02);
 
 // The auto demo drags an invisible 'hand' across the dandelion, then back.
 function driveAuto(dt) {
   autoClock += dt;
   const cycle = autoClock % 10.0;
   const W = window.innerWidth;
-  wind.projectToScreen(dandelion.headCenter, autoHead);
+  wind.projectToScreen(AUTO_ANCHOR, autoHead);
 
   if (cycle > 2.2 && cycle < 2.9) {
     const k = (cycle - 2.2) / 0.7;
@@ -349,16 +341,13 @@ const gustY = params.has('gusty') ? parseFloat(params.get('gusty')) : null;
 const headScreen = new THREE.Vector2();
 
 function updateDebug() {
-  const airborne = dandelion.seeds.filter((s) => s.active && s.state === 2);
-  const avgSpeed = airborne.length
-    ? airborne.reduce((sum, s) => sum + s.vel.length(), 0) / airborne.length
-    : 0;
+  const stats = field.stats();
   debugEl.hidden = false;
   debugEl.textContent =
     `fps ${fps.toFixed(0)}\n` +
-    `head ${String(dandelion.headCount).padStart(3)}  flying ${String(airborne.length).padStart(3)}\n` +
-    `wind ${wind.strength.toFixed(2)}  energy ${wind.energy.toFixed(2)}  headair ${dandelion.headLocalSpeed.toFixed(2)}\n` +
-    `time ${sky.time.toFixed(2)}  wild ${field.count}  v_avg ${avgSpeed.toFixed(2)}`;
+    `plants ${String(stats.plants).padStart(2)}  head ${String(stats.head).padStart(4)}  flying ${String(stats.flying).padStart(3)}\n` +
+    `wind ${wind.strength.toFixed(2)}  energy ${wind.energy.toFixed(2)}\n` +
+    `time ${sky.time.toFixed(2)}  v_avg ${stats.avgSpeed.toFixed(2)}`;
 }
 
 function stepScene(dt) {
@@ -373,7 +362,7 @@ function stepScene(dt) {
     if (active) {
       const W = window.innerWidth;
       const H = window.innerHeight;
-      wind.projectToScreen(dandelion.headCenter, headScreen);
+      wind.projectToScreen(AUTO_ANCHOR, headScreen);
 
       const baseX = gustX === null ? headScreen.x : W * gustX;
       const baseY = gustY === null ? headScreen.y : H * gustY;
@@ -388,7 +377,6 @@ function stepScene(dt) {
 
   wind.update(dt, elapsed);
   world.update(elapsed, dt, wind);
-  dandelion.update(dt, elapsed);
   field.update(elapsed, dt);
 }
 
@@ -456,6 +444,6 @@ window.addEventListener('resize', () => {
 
 // A tiny console handle for tinkering.
 window.__dandy = {
-  scene, camera, renderer, wind, world, dandelion, field, orbit,
-  sky, post, fireflyRenderer, fireflyScene, devConsole
+  scene, camera, renderer, wind, world, field, orbit,
+  sky, post, fireflyRenderer, fireflyScene, devConsole, dandelionParams: DANDELION_PARAMS
 };

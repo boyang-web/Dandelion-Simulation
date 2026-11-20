@@ -85,10 +85,9 @@ const scratch = {
 };
 
 export class Sky {
-  constructor({ wind, world, dandelion, keyLight, hemi, fill, rim, initial = 0.4 }) {
+  constructor({ wind, world, keyLight, hemi, fill, rim, initial = 0.4 }) {
     this.wind = wind;
     this.world = world;
-    this.dandelion = dandelion;
     this.keyLight = keyLight;
     this.hemi = hemi;
     this.fill = fill;
@@ -117,7 +116,7 @@ export class Sky {
     this.time = clamp01(initial);
     // One full day (sun + moon) takes two minutes. The DOM and every shader
     // are updated in small steps so the arc glides instead of ticking.
-    this.timeCycle = 120;
+    this.timeCycle = 240;
     this.flowAccum = 0;
     this.flowPause = 0;
     this.flowEnabled = true;
@@ -632,17 +631,10 @@ export class Sky {
     mixLight(PALETTE.coreNight, PALETTE.coreGolden, PALETTE.coreDay, { golden, day }, scratch.core);
     mixLight(PALETTE.moteNight, PALETTE.moteGolden, PALETTE.moteDay, { golden, day }, scratch.mote);
 
-    const dandelionTime = {
-      fluffTint: scratch.fluff,
-      coreTint: scratch.core,
-      coreOpacity: 0.80 + 0.20 * day,
-      shadowFactor: 0.38 + 0.62 * day
-    };
-    this.dandelion.setTime(dandelionTime);
-    dandelionAtmosphere.fluffTint.copy(dandelionTime.fluffTint);
-    dandelionAtmosphere.coreTint.copy(dandelionTime.coreTint);
-    dandelionAtmosphere.coreOpacity = dandelionTime.coreOpacity;
-    dandelionAtmosphere.shadowFactor = dandelionTime.shadowFactor;
+    dandelionAtmosphere.fluffTint.copy(scratch.fluff);
+    dandelionAtmosphere.coreTint.copy(scratch.core);
+    dandelionAtmosphere.coreOpacity = 0.80 + 0.20 * day;
+    dandelionAtmosphere.shadowFactor = 0.38 + 0.62 * day;
 
     this.world.setTime({
       sunColor: scratch.key,

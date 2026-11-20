@@ -62,7 +62,6 @@ export function createDevConsole({ wind, dandelion, sky, world, fireflies, post,
         row('蒲公英', '脱落强度', dandelion.params, 'detachPower', 0.2, 8, 0.1, '', 'main'),
         row('蒲公英', '脱落集中度', dandelion.params, 'detachExp', 0.6, 2.5, 0.05, '', 'main'),
         row('蒲公英', '种子响应', dandelion.params, 'seedResponseGain', 0.2, 4, 0.05, '', 'main'),
-        row('蒲公英', '复生间隔', dandelion.params, 'regrowMin', 0.05, 1, 0.01, '', 'main'),
         row('蒲公英', '种子寿命', dandelion.params, 'seedLifeMin', 4, 30, 1, '', 'main')
       ]
     },
@@ -264,7 +263,7 @@ export function createDevConsole({ wind, dandelion, sky, world, fireflies, post,
     const flowBtn = document.createElement('button');
     flowBtn.type = 'button';
     flowBtn.textContent = sky.flowEnabled ? '暂停时间' : '继续时间';
-    flowBtn.title = '暂停或继续 120 秒一轮的日月循环';
+    flowBtn.title = '暂停或继续 240 秒一轮的日月循环';
     flowBtn.addEventListener('click', () => {
       sky.setFlow(!sky.flowEnabled);
       flowBtn.textContent = sky.flowEnabled ? '暂停时间' : '继续时间';

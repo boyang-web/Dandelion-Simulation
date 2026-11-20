@@ -5698,13 +5698,26 @@ const HEAD_SLOTS = 220;
 const MAX_SEEDS = 700;
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
-// Shared by the hero and every wild dandelion planted in mode 2. Sky writes
-// these once per time change; each plant reads them every frame.
+// Shared by every dandelion planted in the meadow. Sky writes these once
+// per time change; each plant reads them every frame.
 const dandelionAtmosphere = {
   fluffTint: new THREE.Color('#fffaf0'),
   coreTint: new THREE.Color('#fff6df'),
   coreOpacity: 1,
   shadowFactor: 1
+};
+
+const DANDELION_PARAMS = {
+  seedResponseBase: 0.34,
+  seedResponseGain: 1.55,
+  detachPower: 2.6,
+  detachExp: 1.35,
+  regrowMin: 0.30,
+  regrowVar: 0.16,
+  seedLifeMin: 11,
+  seedLifeVar: 9,
+  quiverBase: 0.011,
+  quiverGain: 0.085
 };
 
 let seedTexture = null;
@@ -6331,18 +6344,7 @@ class Dandelion {
     this._matrix = new THREE.Matrix4();
     this._air = new THREE.Vector3();
 
-    this.params = {
-      seedResponseBase: 0.34,
-      seedResponseGain: 1.55,
-      detachPower: 2.6,
-      detachExp: 1.35,
-      regrowMin: 0.30,
-      regrowVar: 0.16,
-      seedLifeMin: 11,
-      seedLifeVar: 9,
-      quiverBase: 0.011,
-      quiverGain: 0.085
-    };
+    this.params = DANDELION_PARAMS;
   }
 
   _makeSlots() {
@@ -6786,7 +6788,7 @@ class Dandelion {
       }
     }
 
-    // ---- and quietly grows them back (hero only) ----------------------
+    // ---- and quietly grows them back (auto-regrow plants only) --------
     if (this.autoRegrow && this.freeSlots.length > 0) {
       this.regrowTimer -= dt;
       if (this.regrowTimer <= 0) {
@@ -6819,7 +6821,7 @@ class Dandelion {
     }
   }
 }
-return { dandelionAtmosphere, Dandelion };
+return { dandelionAtmosphere, DANDELION_PARAMS, Dandelion };
 } };
 
 defs["js/dandelion-field.js"] = { deps: ["three", "js/dandelion.js"], factory: function (d) {
@@ -6830,16 +6832,16 @@ defs["js/dandelion-field.js"] = { deps: ["three", "js/dandelion.js"], factory: f
 /* ------------------------------------------------------------------ */
 /*  Wild dandelions                                                    */
 /*                                                                     */
-/*  Mode 2 plants are deliberately not copies of the hero: they have    */
-/*  fewer seeds, never regrow, release their seeds slowly on their own, */
-/*  and let their stem fade after a short life.                         */
+/*  Planted dandelions have fewer seeds, never regrow, release their    */
+/*  seeds slowly on their own, and let their stem fade after a short    */
+/*  life. They are never created automatically.                         */
 /* ------------------------------------------------------------------ */
 
 const WILD_SLOTS = 120;
 const WILD_SEEDS = 200;
 
 class DandelionField {
-  constructor({ scene, camera, renderer, wind, maxPlants = 8 }) {
+  constructor({ scene, camera, renderer, wind, maxPlants = 10 }) {
     this.scene = scene;
     this.camera = camera;
     this.renderer = renderer;
@@ -6851,6 +6853,27 @@ class DandelionField {
 
   get count() {
     return this.plants.length;
+  }
+
+  stats() {
+    let head = 0;
+    let flying = 0;
+    let speed = 0;
+    for (const plant of this.plants) {
+      head += plant.headCount;
+      for (const seed of plant.seeds) {
+        if (seed.active && seed.state === 2) {
+          flying++;
+          speed += seed.vel.length();
+        }
+      }
+    }
+    return {
+      plants: this.plants.length,
+      head,
+      flying,
+      avgSpeed: flying ? speed / flying : 0
+    };
   }
 
   spawnAt(point) {
@@ -6952,12 +6975,11 @@ defs["js/orbit.js"] = { deps: ["three"], factory: function (d) {
 
 class OrbitRig {
   constructor(camera, canvas, {
-    target = new THREE.Vector3(0, 2.3, 0.02),
-    minRadius = 6.8,
-    maxRadius = 15.5,
-    minPitch = 0.02,
-    maxPitch = 0.38,
-    maxYaw = 0.85
+    target = new THREE.Vector3(0, 2.0, 0.02),
+    minRadius = 2.5,
+    maxRadius = 32,
+    minPitch = 0,
+    maxPitch = Math.PI / 2 - 0.02
   } = {}) {
     this.camera = camera;
     this.canvas = canvas;
@@ -6966,7 +6988,6 @@ class OrbitRig {
     this.maxRadius = maxRadius;
     this.minPitch = minPitch;
     this.maxPitch = maxPitch;
-    this.maxYaw = maxYaw;
 
     this.radius = 9.4;
     this.yaw = 0;
@@ -7046,7 +7067,9 @@ class OrbitRig {
         const dy = centroid.y - this.lastCentroid.y;
         this.lastCentroid = centroid;
         if (dx || dy) {
-          this.yaw = THREE.MathUtils.clamp(this.yaw - dx * 0.0032, -this.maxYaw, this.maxYaw);
+          this.yaw -= dx * 0.0032;
+          if (this.yaw > Math.PI) this.yaw -= Math.PI * 2;
+          else if (this.yaw < -Math.PI) this.yaw += Math.PI * 2;
           this.pitch = THREE.MathUtils.clamp(this.pitch - dy * 0.0030, this.minPitch, this.maxPitch);
           this.hasView = true;
         }
@@ -7081,7 +7104,9 @@ class OrbitRig {
       const dy = e.clientY - this.lastY;
       this.lastX = e.clientX;
       this.lastY = e.clientY;
-      this.yaw = THREE.MathUtils.clamp(this.yaw - dx * 0.0032, -this.maxYaw, this.maxYaw);
+      this.yaw -= dx * 0.0032;
+      if (this.yaw > Math.PI) this.yaw -= Math.PI * 2;
+      else if (this.yaw < -Math.PI) this.yaw += Math.PI * 2;
       this.pitch = THREE.MathUtils.clamp(this.pitch - dy * 0.0030, this.minPitch, this.maxPitch);
       this.hasView = true;
       this._apply();
@@ -7142,7 +7167,7 @@ class OrbitRig {
     const dy = this.camera.position.y - this.target.y;
     const dz = this.camera.position.z - this.target.z;
     this.radius = THREE.MathUtils.clamp(Math.hypot(dx, dy, dz), this.minRadius, this.maxRadius);
-    this.yaw = THREE.MathUtils.clamp(Math.atan2(dx, dz), -this.maxYaw, this.maxYaw);
+    this.yaw = Math.atan2(dx, dz);
     this.pitch = THREE.MathUtils.clamp(
       Math.asin(THREE.MathUtils.clamp(dy / this.radius, -1, 1)),
       this.minPitch,
@@ -7258,10 +7283,9 @@ const scratch = {
 };
 
 class Sky {
-  constructor({ wind, world, dandelion, keyLight, hemi, fill, rim, initial = 0.4 }) {
+  constructor({ wind, world, keyLight, hemi, fill, rim, initial = 0.4 }) {
     this.wind = wind;
     this.world = world;
-    this.dandelion = dandelion;
     this.keyLight = keyLight;
     this.hemi = hemi;
     this.fill = fill;
@@ -7290,7 +7314,7 @@ class Sky {
     this.time = clamp01(initial);
     // One full day (sun + moon) takes two minutes. The DOM and every shader
     // are updated in small steps so the arc glides instead of ticking.
-    this.timeCycle = 120;
+    this.timeCycle = 240;
     this.flowAccum = 0;
     this.flowPause = 0;
     this.flowEnabled = true;
@@ -7805,17 +7829,10 @@ class Sky {
     mixLight(PALETTE.coreNight, PALETTE.coreGolden, PALETTE.coreDay, { golden, day }, scratch.core);
     mixLight(PALETTE.moteNight, PALETTE.moteGolden, PALETTE.moteDay, { golden, day }, scratch.mote);
 
-    const dandelionTime = {
-      fluffTint: scratch.fluff,
-      coreTint: scratch.core,
-      coreOpacity: 0.80 + 0.20 * day,
-      shadowFactor: 0.38 + 0.62 * day
-    };
-    this.dandelion.setTime(dandelionTime);
-    dandelionAtmosphere.fluffTint.copy(dandelionTime.fluffTint);
-    dandelionAtmosphere.coreTint.copy(dandelionTime.coreTint);
-    dandelionAtmosphere.coreOpacity = dandelionTime.coreOpacity;
-    dandelionAtmosphere.shadowFactor = dandelionTime.shadowFactor;
+    dandelionAtmosphere.fluffTint.copy(scratch.fluff);
+    dandelionAtmosphere.coreTint.copy(scratch.core);
+    dandelionAtmosphere.coreOpacity = 0.80 + 0.20 * day;
+    dandelionAtmosphere.shadowFactor = 0.38 + 0.62 * day;
 
     this.world.setTime({
       sunColor: scratch.key,
@@ -8291,7 +8308,6 @@ function createDevConsole({ wind, dandelion, sky, world, fireflies, post, birds,
         row('蒲公英', '脱落强度', dandelion.params, 'detachPower', 0.2, 8, 0.1, '', 'main'),
         row('蒲公英', '脱落集中度', dandelion.params, 'detachExp', 0.6, 2.5, 0.05, '', 'main'),
         row('蒲公英', '种子响应', dandelion.params, 'seedResponseGain', 0.2, 4, 0.05, '', 'main'),
-        row('蒲公英', '复生间隔', dandelion.params, 'regrowMin', 0.05, 1, 0.01, '', 'main'),
         row('蒲公英', '种子寿命', dandelion.params, 'seedLifeMin', 4, 30, 1, '', 'main')
       ]
     },
@@ -8493,7 +8509,7 @@ function createDevConsole({ wind, dandelion, sky, world, fireflies, post, birds,
     const flowBtn = document.createElement('button');
     flowBtn.type = 'button';
     flowBtn.textContent = sky.flowEnabled ? '暂停时间' : '继续时间';
-    flowBtn.title = '暂停或继续 120 秒一轮的日月循环';
+    flowBtn.title = '暂停或继续 240 秒一轮的日月循环';
     flowBtn.addEventListener('click', () => {
       sky.setFlow(!sky.flowEnabled);
       flowBtn.textContent = sky.flowEnabled ? '暂停时间' : '继续时间';
@@ -8766,7 +8782,7 @@ defs["js/main.js"] = { deps: ["three", "js/wind.js", "js/world.js", "js/dandelio
       const THREE = d["three"].THREE;
       const { WindField } = d["js/wind.js"];
       const { createWorld } = d["js/world.js"];
-      const { Dandelion } = d["js/dandelion.js"];
+      const { DANDELION_PARAMS } = d["js/dandelion.js"];
       const { DandelionField } = d["js/dandelion-field.js"];
       const { OrbitRig } = d["js/orbit.js"];
       const { Sky } = d["js/sky.js"];
@@ -8863,10 +8879,13 @@ scene.add(hemi, keyLight, fill, rim);
 
 const wind = new WindField(camera);
 const world = createWorld(scene, { camera });
-const dandelion = new Dandelion({ scene, camera, renderer, wind });
 const field = new DandelionField({ scene, camera, renderer, wind });
 const orbit = new OrbitRig(camera, canvas, {
-  target: new THREE.Vector3(0, 2.3, 0.02)
+  target: new THREE.Vector3(0, 2.0, 0.02),
+  minRadius: 2.5,
+  maxRadius: 32,
+  minPitch: 0,
+  maxPitch: Math.PI / 2 - 0.02
 });
 orbit.onDragStart = () => wind.setEnabled(false);
 orbit.onDragEnd = () => wind.setEnabled(true);
@@ -8874,7 +8893,6 @@ orbit.onDragEnd = () => wind.setEnabled(true);
 const sky = new Sky({
   wind,
   world,
-  dandelion,
   keyLight,
   hemi,
   fill,
@@ -8944,7 +8962,7 @@ let devConsole = null;
 if (isDev) {
   devConsole = createDevConsole({
     wind,
-    dandelion,
+    dandelion: { params: DANDELION_PARAMS },
     sky,
     world,
     fireflies: world.fireflies,
@@ -8961,7 +8979,6 @@ const hintMouse = document.querySelector('.hint__text--mouse');
 const hintTouch = document.querySelector('.hint__text--touch');
 if (hintMouse) hintMouse.textContent = '滑过草地 · 起风　·　拖动 · 视角　·　点击 · 种植';
 if (hintTouch) hintTouch.textContent = '单指滑过 · 起风　·　双指 · 视角　·　轻点 · 种植';
-const sigilEl = document.getElementById('sigil');
 
 /* ------------------------------------------------------------------ */
 /* ui                                                                  */
@@ -8978,9 +8995,7 @@ function updateUI() {
     lastShownWind = shown;
   }
 
-  if (sigilEl) sigilEl.classList.toggle('is-windy', wind.strength > 0.08);
-
-  if (!interacted && dandelion.everDetached) {
+  if (!interacted && (wind.strength > 0.12 || field.count > 0 || orbit.hasView)) {
     interacted = true;
     document.body.classList.add('interacted');
     hint.setAttribute('aria-hidden', 'true');
@@ -9034,15 +9049,7 @@ function finishTap(e) {
 
   const point = hits[0].point;
   if (Math.abs(point.x) > 20 || point.z < -30 || point.z > 12) return;
-  if (Math.hypot(point.x, point.z) < 1.0) return;
   field.spawnAt(point);
-
-  if (sigilEl) {
-    sigilEl.classList.remove('is-pulse');
-    void sigilEl.offsetWidth;
-    sigilEl.classList.add('is-pulse');
-    setTimeout(() => sigilEl.classList.remove('is-pulse'), 900);
-  }
 }
 
 canvas.addEventListener('pointerup', finishTap);
@@ -9084,13 +9091,14 @@ function updateCamera(t) {
 
 let autoClock = 0;
 const autoHead = new THREE.Vector2();
+const AUTO_ANCHOR = new THREE.Vector3(0, 2.56, 0.02);
 
 // The auto demo drags an invisible 'hand' across the dandelion, then back.
 function driveAuto(dt) {
   autoClock += dt;
   const cycle = autoClock % 10.0;
   const W = window.innerWidth;
-  wind.projectToScreen(dandelion.headCenter, autoHead);
+  wind.projectToScreen(AUTO_ANCHOR, autoHead);
 
   if (cycle > 2.2 && cycle < 2.9) {
     const k = (cycle - 2.2) / 0.7;
@@ -9122,16 +9130,13 @@ const gustY = params.has('gusty') ? parseFloat(params.get('gusty')) : null;
 const headScreen = new THREE.Vector2();
 
 function updateDebug() {
-  const airborne = dandelion.seeds.filter((s) => s.active && s.state === 2);
-  const avgSpeed = airborne.length
-    ? airborne.reduce((sum, s) => sum + s.vel.length(), 0) / airborne.length
-    : 0;
+  const stats = field.stats();
   debugEl.hidden = false;
   debugEl.textContent =
     `fps ${fps.toFixed(0)}\n` +
-    `head ${String(dandelion.headCount).padStart(3)}  flying ${String(airborne.length).padStart(3)}\n` +
-    `wind ${wind.strength.toFixed(2)}  energy ${wind.energy.toFixed(2)}  headair ${dandelion.headLocalSpeed.toFixed(2)}\n` +
-    `time ${sky.time.toFixed(2)}  wild ${field.count}  v_avg ${avgSpeed.toFixed(2)}`;
+    `plants ${String(stats.plants).padStart(2)}  head ${String(stats.head).padStart(4)}  flying ${String(stats.flying).padStart(3)}\n` +
+    `wind ${wind.strength.toFixed(2)}  energy ${wind.energy.toFixed(2)}\n` +
+    `time ${sky.time.toFixed(2)}  v_avg ${stats.avgSpeed.toFixed(2)}`;
 }
 
 function stepScene(dt) {
@@ -9146,7 +9151,7 @@ function stepScene(dt) {
     if (active) {
       const W = window.innerWidth;
       const H = window.innerHeight;
-      wind.projectToScreen(dandelion.headCenter, headScreen);
+      wind.projectToScreen(AUTO_ANCHOR, headScreen);
 
       const baseX = gustX === null ? headScreen.x : W * gustX;
       const baseY = gustY === null ? headScreen.y : H * gustY;
@@ -9161,7 +9166,6 @@ function stepScene(dt) {
 
   wind.update(dt, elapsed);
   world.update(elapsed, dt, wind);
-  dandelion.update(dt, elapsed);
   field.update(elapsed, dt);
 }
 
@@ -9229,8 +9233,8 @@ window.addEventListener('resize', () => {
 
 // A tiny console handle for tinkering.
 window.__dandy = {
-  scene, camera, renderer, wind, world, dandelion, field, orbit,
-  sky, post, fireflyRenderer, fireflyScene, devConsole
+  scene, camera, renderer, wind, world, field, orbit,
+  sky, post, fireflyRenderer, fireflyScene, devConsole, dandelionParams: DANDELION_PARAMS
 };
 return {};
 } };

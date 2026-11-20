@@ -14,13 +14,26 @@ const HEAD_SLOTS = 220;
 const MAX_SEEDS = 700;
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
-// Shared by the hero and every wild dandelion planted in mode 2. Sky writes
-// these once per time change; each plant reads them every frame.
+// Shared by every dandelion planted in the meadow. Sky writes these once
+// per time change; each plant reads them every frame.
 export const dandelionAtmosphere = {
   fluffTint: new THREE.Color('#fffaf0'),
   coreTint: new THREE.Color('#fff6df'),
   coreOpacity: 1,
   shadowFactor: 1
+};
+
+export const DANDELION_PARAMS = {
+  seedResponseBase: 0.34,
+  seedResponseGain: 1.55,
+  detachPower: 2.6,
+  detachExp: 1.35,
+  regrowMin: 0.30,
+  regrowVar: 0.16,
+  seedLifeMin: 11,
+  seedLifeVar: 9,
+  quiverBase: 0.011,
+  quiverGain: 0.085
 };
 
 let seedTexture = null;
@@ -647,18 +660,7 @@ export class Dandelion {
     this._matrix = new THREE.Matrix4();
     this._air = new THREE.Vector3();
 
-    this.params = {
-      seedResponseBase: 0.34,
-      seedResponseGain: 1.55,
-      detachPower: 2.6,
-      detachExp: 1.35,
-      regrowMin: 0.30,
-      regrowVar: 0.16,
-      seedLifeMin: 11,
-      seedLifeVar: 9,
-      quiverBase: 0.011,
-      quiverGain: 0.085
-    };
+    this.params = DANDELION_PARAMS;
   }
 
   _makeSlots() {
@@ -1102,7 +1104,7 @@ export class Dandelion {
       }
     }
 
-    // ---- and quietly grows them back (hero only) ----------------------
+    // ---- and quietly grows them back (auto-regrow plants only) --------
     if (this.autoRegrow && this.freeSlots.length > 0) {
       this.regrowTimer -= dt;
       if (this.regrowTimer <= 0) {

@@ -7,7 +7,7 @@
   <title>等风来 · 蒲公英</title>
   <meta name="description" content="一朵由代码生成的蒲公英。滑动鼠标或手指制造风，看种子飘散，再等它慢慢长回来。" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23e9e1c6'/%3E%3Ccircle cx='16' cy='14' r='8' fill='%23fffaf0'/%3E%3Cpath d='M16 22v7' stroke='%237b934f' stroke-width='2'/%3E%3C/svg%3E" />
-  <link rel="stylesheet" href="./css/style.css?v=29" />
+  <link rel="stylesheet" href="./css/style.css?v=30" />
   <script>
     // Show a readable message if the scene fails to start.
     (function () {
@@ -42,43 +42,6 @@
   <div class="golden-veil" id="goldenVeil" aria-hidden="true"></div>
   <div class="stars" id="stars" aria-hidden="true"></div>
   <div class="sun-rays" id="sunRays" aria-hidden="true"></div>
-
-  <div class="sigil-wrap" id="sigilWrap" aria-hidden="true">
-    <div class="sigil" id="sigil">
-      <span class="sigil__aura" aria-hidden="true"></span>
-      <svg class="sigil__mark" viewBox="0 0 200 200" aria-hidden="true">
-        <g class="sigil__spin sigil__spin--slow">
-          <circle cx="100" cy="100" r="94" fill="none" stroke="currentColor" stroke-width="0.7" opacity="0.8"/>
-          <circle cx="100" cy="100" r="86" fill="none" stroke="currentColor" stroke-width="0.5"
-                  stroke-dasharray="1.5 7" opacity="0.75"/>
-          <g opacity="0.8">
-            <line x1="100" y1="10" x2="100" y2="20"/>
-            <line x1="100" y1="10" x2="100" y2="20" transform="rotate(30 100 100)"/>
-            <line x1="100" y1="10" x2="100" y2="20" transform="rotate(60 100 100)"/>
-            <line x1="100" y1="10" x2="100" y2="20" transform="rotate(90 100 100)"/>
-            <line x1="100" y1="10" x2="100" y2="20" transform="rotate(120 100 100)"/>
-            <line x1="100" y1="10" x2="100" y2="20" transform="rotate(150 100 100)"/>
-            <line x1="100" y1="10" x2="100" y2="20" transform="rotate(180 100 100)"/>
-            <line x1="100" y1="10" x2="100" y2="20" transform="rotate(210 100 100)"/>
-            <line x1="100" y1="10" x2="100" y2="20" transform="rotate(240 100 100)"/>
-            <line x1="100" y1="10" x2="100" y2="20" transform="rotate(270 100 100)"/>
-            <line x1="100" y1="10" x2="100" y2="20" transform="rotate(300 100 100)"/>
-            <line x1="100" y1="10" x2="100" y2="20" transform="rotate(330 100 100)"/>
-          </g>
-        </g>
-        <g class="sigil__spin sigil__spin--reverse">
-          <circle cx="100" cy="100" r="64" fill="none" stroke="currentColor" stroke-width="0.55"
-                  stroke-dasharray="6 5" opacity="0.7"/>
-          <rect x="48" y="48" width="104" height="104" fill="none" stroke="currentColor"
-                stroke-width="0.65" opacity="0.55"/>
-          <rect x="48" y="48" width="104" height="104" fill="none" stroke="currentColor"
-                stroke-width="0.65" opacity="0.55" transform="rotate(45 100 100)"/>
-          <circle cx="100" cy="100" r="30" fill="none" stroke="currentColor" stroke-width="0.8" opacity="0.85"/>
-          <circle cx="100" cy="100" r="3" fill="currentColor" opacity="0.9"/>
-        </g>
-      </svg>
-    </div>
-  </div>
 
   <div class="celestial celestial--sun" id="sunBody" role="slider" tabindex="0"
        aria-label="太阳轨道：长按并沿天空弧线拖动，调整时间"
@@ -138,9 +101,9 @@
       // http(s) keeps the modular sources for live development.
       if (location.protocol === 'file:') {
         document.write('<script src="./vendor/three.global.js"><\/script>');
-        document.write('<script src="./js/bundle.js?v=29"><\/script>');
+        document.write('<script src="./js/bundle.js?v=30"><\/script>');
       } else {
-        document.write('<script type="module" src="./js/main.js?v=29"><\/script>');
+        document.write('<script type="module" src="./js/main.js?v=30"><\/script>');
       }
     })();
   </script>
