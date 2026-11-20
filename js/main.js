@@ -4,7 +4,6 @@ import { createWorld } from './world.js';
 import { Dandelion } from './dandelion.js';
 import { DandelionField } from './dandelion-field.js';
 import { OrbitRig } from './orbit.js';
-import { SigilUI } from './sigil.js';
 import { Sky } from './sky.js';
 import { createPostPipeline } from './post.js';
 import { createDevConsole } from './dev-console.js';
@@ -96,6 +95,8 @@ const field = new DandelionField({ scene, camera, renderer, wind });
 const orbit = new OrbitRig(camera, canvas, {
   target: new THREE.Vector3(0, 2.3, 0.02)
 });
+orbit.onDragStart = () => wind.setEnabled(false);
+orbit.onDragEnd = () => wind.setEnabled(true);
 
 const sky = new Sky({
   wind,
@@ -180,54 +181,14 @@ if (isDev) {
 }
 
 /* ------------------------------------------------------------------ */
-/* operation modes                                                     */
+/* controls are always-on; only hints live here                       */
 /* ------------------------------------------------------------------ */
 
-let currentMode = 'wind';
-let hintTimer = 0;
 const hintMouse = document.querySelector('.hint__text--mouse');
 const hintTouch = document.querySelector('.hint__text--touch');
-const MODE_HINTS = {
-  wind: {
-    mouse: '滑过蒲公英 · 扬起一阵风',
-    touch: '手指滑过蒲公英 · 扬起风'
-  },
-  plant: {
-    mouse: '点击草地 · 种下一朵蒲公英',
-    touch: '轻点草地 · 种下一朵蒲公英'
-  },
-  orbit: {
-    mouse: '拖动旋转 · 滚轮缩放视角',
-    touch: '拖动旋转 · 双指缩放'
-  }
-};
-
-function setMode(mode) {
-  currentMode = mode;
-  document.body.classList.toggle('mode-wind', mode === 'wind');
-  document.body.classList.toggle('mode-plant', mode === 'plant');
-  document.body.classList.toggle('mode-orbit', mode === 'orbit');
-
-  wind.setEnabled(mode === 'wind');
-  orbit.setActive(mode === 'orbit');
-  // Modes share state: planted dandelions stay in the meadow when the user
-  // switches tools, and the orbit pose is kept when they go back to wind.
-  dandelion.setEnabled(mode !== 'plant');
-
-  const hint = MODE_HINTS[mode];
-  if (hint) {
-    if (hintMouse) hintMouse.textContent = hint.mouse;
-    if (hintTouch) hintTouch.textContent = hint.touch;
-  }
-
-  // Re-show the instructions for a moment after each mode change.
-  document.body.classList.remove('interacted');
-  clearTimeout(hintTimer);
-  hintTimer = setTimeout(() => document.body.classList.add('interacted'), 6500);
-}
-
-const sigil = new SigilUI({ initial: 'wind', onMode: setMode });
-setMode('wind');
+if (hintMouse) hintMouse.textContent = '滑过草地 · 起风　·　拖动 · 视角　·　点击 · 种植';
+if (hintTouch) hintTouch.textContent = '单指滑过 · 起风　·　双指 · 视角　·　轻点 · 种植';
+const sigilEl = document.getElementById('sigil');
 
 /* ------------------------------------------------------------------ */
 /* ui                                                                  */
@@ -244,6 +205,8 @@ function updateUI() {
     lastShownWind = shown;
   }
 
+  if (sigilEl) sigilEl.classList.toggle('is-windy', wind.strength > 0.08);
+
   if (!interacted && dandelion.everDetached) {
     interacted = true;
     document.body.classList.add('interacted');
@@ -252,14 +215,40 @@ function updateUI() {
 }
 
 /* ------------------------------------------------------------------ */
-/* planting (mode 2)                                                   */
+/* planting (tap)                                                      */
 /* ------------------------------------------------------------------ */
 
 const planterRay = new THREE.Raycaster();
 const planterNdc = new THREE.Vector2();
+const taps = new Map();
+let tapMulti = false;
 
 canvas.addEventListener('pointerdown', (e) => {
-  if (currentMode !== 'plant') return;
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  if (taps.size > 0) tapMulti = true;
+  taps.set(e.pointerId, {
+    x: e.clientX,
+    y: e.clientY,
+    time: performance.now(),
+    moved: false
+  });
+});
+
+canvas.addEventListener('pointermove', (e) => {
+  const tap = taps.get(e.pointerId);
+  if (!tap) return;
+  if (Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 8) tap.moved = true;
+});
+
+function finishTap(e) {
+  const tap = taps.get(e.pointerId);
+  if (!tap) return;
+  const multi = tapMulti;
+  taps.delete(e.pointerId);
+  if (taps.size === 0) tapMulti = false;
+
+  if (multi || tap.moved) return;
+  if (performance.now() - tap.time > 380) return;
   if (e.pointerType === 'mouse' && e.button !== 0) return;
 
   planterNdc.set(
@@ -272,15 +261,31 @@ canvas.addEventListener('pointerdown', (e) => {
 
   const point = hits[0].point;
   if (Math.abs(point.x) > 20 || point.z < -30 || point.z > 12) return;
+  if (Math.hypot(point.x, point.z) < 1.0) return;
   field.spawnAt(point);
+
+  if (sigilEl) {
+    sigilEl.classList.remove('is-pulse');
+    void sigilEl.offsetWidth;
+    sigilEl.classList.add('is-pulse');
+    setTimeout(() => sigilEl.classList.remove('is-pulse'), 900);
+  }
+}
+
+canvas.addEventListener('pointerup', finishTap);
+canvas.addEventListener('pointercancel', (e) => {
+  taps.delete(e.pointerId);
+  if (taps.size === 0) tapMulti = false;
 });
 
 /* ------------------------------------------------------------------ */
 /* camera drift                                                        */
 /* ------------------------------------------------------------------ */
+/* camera drift                                                        */
+/* ------------------------------------------------------------------ */
 
 function updateCamera(t) {
-  if (currentMode === 'orbit' || orbit.hasView) {
+  if (orbit.hasView) {
     orbit.apply();
     return;
   }
@@ -353,7 +358,7 @@ function updateDebug() {
     `fps ${fps.toFixed(0)}\n` +
     `head ${String(dandelion.headCount).padStart(3)}  flying ${String(airborne.length).padStart(3)}\n` +
     `wind ${wind.strength.toFixed(2)}  energy ${wind.energy.toFixed(2)}  headair ${dandelion.headLocalSpeed.toFixed(2)}\n` +
-    `time ${sky.time.toFixed(2)}  mode ${currentMode}  wild ${field.count}  v_avg ${avgSpeed.toFixed(2)}`;
+    `time ${sky.time.toFixed(2)}  wild ${field.count}  v_avg ${avgSpeed.toFixed(2)}`;
 }
 
 function stepScene(dt) {
@@ -444,14 +449,13 @@ window.addEventListener('resize', () => {
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
   frameCamera();
-  if (currentMode === 'orbit' || orbit.hasView) orbit.apply();
+  if (orbit.hasView) orbit.apply();
   sky.resize();
   post.resize();
 });
 
 // A tiny console handle for tinkering.
 window.__dandy = {
-  scene, camera, renderer, wind, world, dandelion, field, orbit, sigil,
-  sky, post, fireflyRenderer, fireflyScene, devConsole,
-  get mode() { return currentMode; }
+  scene, camera, renderer, wind, world, dandelion, field, orbit,
+  sky, post, fireflyRenderer, fireflyScene, devConsole
 };

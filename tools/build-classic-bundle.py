@@ -34,7 +34,6 @@ MODULES = [
     'js/dandelion.js',
     'js/dandelion-field.js',
     'js/orbit.js',
-    'js/sigil.js',
     'js/sky.js',
     'js/post.js',
     'js/dev-console.js',

@@ -7,7 +7,7 @@
   <title>等风来 · 蒲公英</title>
   <meta name="description" content="一朵由代码生成的蒲公英。滑动鼠标或手指制造风，看种子飘散，再等它慢慢长回来。" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23e9e1c6'/%3E%3Ccircle cx='16' cy='14' r='8' fill='%23fffaf0'/%3E%3Cpath d='M16 22v7' stroke='%237b934f' stroke-width='2'/%3E%3C/svg%3E" />
-  <link rel="stylesheet" href="./css/style.css?v=26" />
+  <link rel="stylesheet" href="./css/style.css?v=29" />
   <script>
     // Show a readable message if the scene fails to start.
     (function () {
@@ -43,9 +43,8 @@
   <div class="stars" id="stars" aria-hidden="true"></div>
   <div class="sun-rays" id="sunRays" aria-hidden="true"></div>
 
-  <div class="sigil-wrap" id="sigilWrap" data-no-wind>
-    <button class="sigil" id="sigil" type="button" aria-haspopup="true" aria-expanded="false"
-            aria-label="长按切换操作模式">
+  <div class="sigil-wrap" id="sigilWrap" aria-hidden="true">
+    <div class="sigil" id="sigil">
       <span class="sigil__aura" aria-hidden="true"></span>
       <svg class="sigil__mark" viewBox="0 0 200 200" aria-hidden="true">
         <g class="sigil__spin sigil__spin--slow">
@@ -78,18 +77,6 @@
           <circle cx="100" cy="100" r="3" fill="currentColor" opacity="0.9"/>
         </g>
       </svg>
-      <span class="sigil__mode" id="sigilMode">风</span>
-    </button>
-    <div class="mode-menu" id="modeMenu" role="menu" aria-label="操作模式" hidden>
-      <button type="button" data-mode="wind" role="menuitem" aria-label="操控风模式" aria-pressed="true">
-        <span class="mode-menu__glyph">风</span><span class="mode-menu__name">操控风</span>
-      </button>
-      <button type="button" data-mode="plant" role="menuitem" aria-label="种植模式" aria-pressed="false">
-        <span class="mode-menu__glyph">种</span><span class="mode-menu__name">种植</span>
-      </button>
-      <button type="button" data-mode="orbit" role="menuitem" aria-label="视角模式" aria-pressed="false">
-        <span class="mode-menu__glyph">视</span><span class="mode-menu__name">视角</span>
-      </button>
     </div>
   </div>
 
@@ -129,8 +116,8 @@
 
   <div class="hint" id="hint" role="status">
     <span class="hint__rule" aria-hidden="true"></span>
-    <span class="hint__text hint__text--mouse">滑过蒲公英 · 扬起一阵风</span>
-    <span class="hint__text hint__text--touch">手指滑过蒲公英 · 扬起风</span>
+    <span class="hint__text hint__text--mouse">滑过草地 · 起风　·　拖动 · 视角　·　点击 · 种植</span>
+    <span class="hint__text hint__text--touch">单指滑过 · 起风　·　双指 · 视角　·　轻点 · 种植</span>
   </div>
 
   <div class="meter" aria-hidden="true">
@@ -151,9 +138,9 @@
       // http(s) keeps the modular sources for live development.
       if (location.protocol === 'file:') {
         document.write('<script src="./vendor/three.global.js"><\/script>');
-        document.write('<script src="./js/bundle.js?v=26"><\/script>');
+        document.write('<script src="./js/bundle.js?v=29"><\/script>');
       } else {
-        document.write('<script type="module" src="./js/main.js?v=26"><\/script>');
+        document.write('<script type="module" src="./js/main.js?v=29"><\/script>');
       }
     })();
   </script>

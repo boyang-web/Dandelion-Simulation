@@ -6943,11 +6943,11 @@ defs["js/orbit.js"] = { deps: ["three"], factory: function (d) {
       const THREE = d["three"].THREE;
 
 /* ------------------------------------------------------------------ */
-/*  Orbit camera rig for mode 3                                        */
+/*  Always-on orbit / zoom rig                                         */
 /*                                                                     */
-/*  A small, art-directed orbit: enough yaw/pitch and dolly to feel    */
-/*  the meadow in three dimensions without turning the painted sky     */
-/*  into a spinning backdrop.                                           */
+/*  Desktop: hover is wind, left-drag is camera, wheel is zoom.         */
+/*  Touch: one finger is wind, two fingers are camera + pinch.          */
+/*  A short click/tap is left to the planting tap detector.             */
 /* ------------------------------------------------------------------ */
 
 class OrbitRig {
@@ -6971,46 +6971,86 @@ class OrbitRig {
     this.radius = 9.4;
     this.yaw = 0;
     this.pitch = 0.02;
-    this.active = false;
-    this.dragging = false;
     this.hasView = false;
+    this.dragging = false;
     this.pointers = new Map();
+    this.pending = false;
+    this.startX = 0;
+    this.startY = 0;
     this.lastX = 0;
     this.lastY = 0;
     this.pinchStart = 0;
     this.pinchRadius = this.radius;
-    this._bound = false;
+    this.lastCentroid = { x: 0, y: 0 };
+    this.onDragStart = null;
+    this.onDragEnd = null;
 
     this._bind();
   }
 
   _bind() {
     const down = (e) => {
-      if (!this.active || e.target !== this.canvas) return;
+      if (e.target !== this.canvas) return;
       if (e.pointerType === 'mouse' && e.button !== 0) return;
-      e.preventDefault();
-      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      this.pointers.set(e.pointerId, {
+        x: e.clientX,
+        y: e.clientY,
+        type: e.pointerType
+      });
       try { this.canvas.setPointerCapture(e.pointerId); } catch (err) { /* noop */ }
 
       if (this.pointers.size === 1) {
-        this.dragging = true;
+        this.pending = true;
+        this.startX = e.clientX;
+        this.startY = e.clientY;
         this.lastX = e.clientX;
         this.lastY = e.clientY;
-        document.body.classList.add('orbit-dragging');
       } else if (this.pointers.size === 2) {
+        this.pending = false;
+        this._beginDrag();
         const pts = [...this.pointers.values()];
         this.pinchStart = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
         this.pinchRadius = this.radius;
+        this.lastCentroid = {
+          x: (pts[0].x + pts[1].x) * 0.5,
+          y: (pts[0].y + pts[1].y) * 0.5
+        };
+        e.preventDefault();
       }
     };
 
     const move = (e) => {
-      if (!this.active || !this.pointers.has(e.pointerId)) return;
-      e.preventDefault();
-      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (!this.pointers.has(e.pointerId)) return;
+      this.pointers.set(e.pointerId, {
+        x: e.clientX,
+        y: e.clientY,
+        type: e.pointerType
+      });
 
       if (this.pointers.size >= 2) {
+        e.preventDefault();
         const pts = [...this.pointers.values()];
+        const centroid = {
+          x: (pts[0].x + pts[1].x) * 0.5,
+          y: (pts[0].y + pts[1].y) * 0.5
+        };
+        if (!this.pinchStart) {
+          this._beginDrag();
+          this.pinchStart = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+          this.pinchRadius = this.radius;
+          this.lastCentroid = centroid;
+        }
+
+        const dx = centroid.x - this.lastCentroid.x;
+        const dy = centroid.y - this.lastCentroid.y;
+        this.lastCentroid = centroid;
+        if (dx || dy) {
+          this.yaw = THREE.MathUtils.clamp(this.yaw - dx * 0.0032, -this.maxYaw, this.maxYaw);
+          this.pitch = THREE.MathUtils.clamp(this.pitch - dy * 0.0030, this.minPitch, this.maxPitch);
+          this.hasView = true;
+        }
+
         const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
         if (this.pinchStart > 1 && dist > 1) {
           this.radius = THREE.MathUtils.clamp(
@@ -7019,11 +7059,24 @@ class OrbitRig {
             this.maxRadius
           );
           this.hasView = true;
-          this._apply();
         }
+        this._apply();
         return;
       }
 
+      // One touch is wind, not camera. The wind field owns that gesture.
+      if (e.pointerType === 'touch') return;
+
+      if (this.pending) {
+        if (Math.hypot(e.clientX - this.startX, e.clientY - this.startY) < 10) return;
+        this.pending = false;
+        this._beginDrag();
+        // Keep lastX/lastY at the press point: this first event should apply
+        // the movement that crossed the drag threshold.
+      }
+      if (!this.dragging) return;
+
+      e.preventDefault();
       const dx = e.clientX - this.lastX;
       const dy = e.clientY - this.lastY;
       this.lastX = e.clientX;
@@ -7038,19 +7091,20 @@ class OrbitRig {
       if (!this.pointers.has(e.pointerId)) return;
       this.pointers.delete(e.pointerId);
       try { this.canvas.releasePointerCapture(e.pointerId); } catch (err) { /* noop */ }
+
+      if (this.dragging && this.pointers.size < 2) this._endDrag();
       if (this.pointers.size === 0) {
-        this.dragging = false;
-        document.body.classList.remove('orbit-dragging');
-      } else if (this.pointers.size === 1) {
-        const p = [...this.pointers.values()][0];
-        this.lastX = p.x;
-        this.lastY = p.y;
+        this.pending = false;
+        this.pinchStart = 0;
+      } else {
+        this.pinchStart = 0;
       }
     };
 
     const wheel = (e) => {
-      if (!this.active) return;
+      if (e.target !== this.canvas) return;
       e.preventDefault();
+      if (!this.hasView) this.syncFromCamera();
       this.radius = THREE.MathUtils.clamp(
         this.radius * Math.exp(e.deltaY * 0.0012),
         this.minRadius,
@@ -7066,19 +7120,21 @@ class OrbitRig {
     this.canvas.addEventListener('pointercancel', up);
     this.canvas.addEventListener('lostpointercapture', up);
     this.canvas.addEventListener('wheel', wheel, { passive: false });
-    this._bound = true;
   }
 
-  setActive(on) {
-    this.active = !!on;
-    if (this.active) {
-      this.syncFromCamera();
-      this._apply();
-    } else {
-      this.pointers.clear();
-      this.dragging = false;
-      document.body.classList.remove('orbit-dragging');
-    }
+  _beginDrag() {
+    if (this.dragging) return;
+    if (!this.hasView) this.syncFromCamera();
+    this.dragging = true;
+    document.body.classList.add('orbit-dragging');
+    this.onDragStart?.();
+  }
+
+  _endDrag() {
+    if (!this.dragging) return;
+    this.dragging = false;
+    document.body.classList.remove('orbit-dragging');
+    this.onDragEnd?.();
   }
 
   syncFromCamera() {
@@ -7109,137 +7165,8 @@ class OrbitRig {
     this.camera.updateMatrixWorld();
   }
 }
+
 return { OrbitRig };
-} };
-
-defs["js/sigil.js"] = { deps: [], factory: function (d) {
-
-/* ------------------------------------------------------------------ */
-/*  Sky sigil / mode switcher                                          */
-/*                                                                     */
-/*  Long-press the glowing mark in the sky to open the three-mode       */
-/*  selector, then tap a mode. A short press intentionally does         */
-/*  nothing so it cannot fire while someone is just looking around.     */
-/* ------------------------------------------------------------------ */
-
-const LABELS = { wind: '风', plant: '种植', orbit: '视角' };
-
-class SigilUI {
-  constructor({ onMode, initial = 'wind' } = {}) {
-    this.onMode = onMode;
-    this.mode = initial;
-    this.longPressTimer = 0;
-    this.openedAt = 0;
-    this.startX = 0;
-    this.startY = 0;
-
-    this.wrap = document.getElementById('sigilWrap');
-    this.sigil = document.getElementById('sigil');
-    this.menu = document.getElementById('modeMenu');
-    this.label = document.getElementById('sigilMode');
-    this.buttons = [...document.querySelectorAll('[data-mode]')];
-
-    this._bind();
-    this.set(initial, { silent: true });
-  }
-
-  _bind() {
-    this.sigil.addEventListener('pointerdown', (e) => {
-      if (e.target.closest('.mode-menu')) return;
-      if (e.pointerType === 'mouse' && e.button !== 0) return;
-      this.startX = e.clientX;
-      this.startY = e.clientY;
-      this.clearTimer();
-      this.longPressTimer = setTimeout(() => {
-        this.longPressTimer = 0;
-        this.openedAt = performance.now();
-        this.openMenu();
-      }, 600);
-    });
-
-    const cancel = () => this.clearTimer();
-    this.sigil.addEventListener('pointerup', cancel);
-    this.sigil.addEventListener('pointercancel', cancel);
-    this.sigil.addEventListener('pointerleave', cancel);
-    this.sigil.addEventListener('pointermove', (e) => {
-      if (!this.longPressTimer) return;
-      if (Math.hypot(e.clientX - this.startX, e.clientY - this.startY) > 12) {
-        cancel();
-      }
-    });
-
-    this.sigil.addEventListener('click', (e) => {
-      e.preventDefault();
-      if (!this.menu.hidden) return;
-      if (performance.now() - this.openedAt < 500) return;
-      // A short click is a quiet hint, not a mode change.
-      this.sigil.classList.remove('is-pulse');
-      void this.sigil.offsetWidth;
-      this.sigil.classList.add('is-pulse');
-    });
-
-    for (const button of this.buttons) {
-      button.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.set(button.dataset.mode);
-        this.closeMenu();
-      });
-    }
-
-    document.addEventListener('pointerdown', (e) => {
-      if (this.menu.hidden) return;
-      if (this.wrap.contains(e.target)) return;
-      this.closeMenu();
-    });
-
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') this.closeMenu();
-    });
-
-    this.sigil.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        this.openMenu();
-        const active = this.buttons.find((b) => b.dataset.mode === this.mode);
-        (active || this.buttons[0]).focus();
-      }
-    });
-  }
-
-  clearTimer() {
-    if (this.longPressTimer) {
-      clearTimeout(this.longPressTimer);
-      this.longPressTimer = 0;
-    }
-  }
-
-  openMenu() {
-    this.menu.hidden = false;
-    this.wrap.classList.add('is-open');
-    this.sigil.setAttribute('aria-expanded', 'true');
-    this.sigil.classList.add('is-lit');
-  }
-
-  closeMenu() {
-    this.menu.hidden = true;
-    this.wrap.classList.remove('is-open');
-    this.sigil.setAttribute('aria-expanded', 'false');
-    this.sigil.classList.remove('is-lit');
-  }
-
-  set(mode, { silent = false } = {}) {
-    if (!LABELS[mode]) return;
-    this.mode = mode;
-    if (this.label) this.label.textContent = LABELS[mode];
-    for (const button of this.buttons) {
-      const active = button.dataset.mode === mode;
-      button.classList.toggle('is-active', active);
-      button.setAttribute('aria-pressed', active ? 'true' : 'false');
-    }
-    if (!silent) this.onMode?.(mode);
-  }
-}
-return { SigilUI };
 } };
 
 defs["js/sky.js"] = { deps: ["three", "js/dandelion.js"], factory: function (d) {
@@ -8835,18 +8762,16 @@ window.__dandy = { scene, camera, renderer, world, sky, post, devConsole, mode: 
 return {};
 } };
 
-defs["js/main.js"] = { deps: ["three", "js/wind.js", "js/world.js", "js/dandelion.js", "js/dandelion-field.js", "js/orbit.js", "js/sigil.js", "js/sky.js", "js/post.js", "js/dev-console.js"], factory: function (d) {
+defs["js/main.js"] = { deps: ["three", "js/wind.js", "js/world.js", "js/dandelion.js", "js/dandelion-field.js", "js/orbit.js", "js/sky.js", "js/post.js", "js/dev-console.js"], factory: function (d) {
       const THREE = d["three"].THREE;
       const { WindField } = d["js/wind.js"];
       const { createWorld } = d["js/world.js"];
       const { Dandelion } = d["js/dandelion.js"];
       const { DandelionField } = d["js/dandelion-field.js"];
       const { OrbitRig } = d["js/orbit.js"];
-      const { SigilUI } = d["js/sigil.js"];
       const { Sky } = d["js/sky.js"];
       const { createPostPipeline } = d["js/post.js"];
       const { createDevConsole } = d["js/dev-console.js"];
-
 
 
 
@@ -8943,6 +8868,8 @@ const field = new DandelionField({ scene, camera, renderer, wind });
 const orbit = new OrbitRig(camera, canvas, {
   target: new THREE.Vector3(0, 2.3, 0.02)
 });
+orbit.onDragStart = () => wind.setEnabled(false);
+orbit.onDragEnd = () => wind.setEnabled(true);
 
 const sky = new Sky({
   wind,
@@ -9027,54 +8954,14 @@ if (isDev) {
 }
 
 /* ------------------------------------------------------------------ */
-/* operation modes                                                     */
+/* controls are always-on; only hints live here                       */
 /* ------------------------------------------------------------------ */
 
-let currentMode = 'wind';
-let hintTimer = 0;
 const hintMouse = document.querySelector('.hint__text--mouse');
 const hintTouch = document.querySelector('.hint__text--touch');
-const MODE_HINTS = {
-  wind: {
-    mouse: '滑过蒲公英 · 扬起一阵风',
-    touch: '手指滑过蒲公英 · 扬起风'
-  },
-  plant: {
-    mouse: '点击草地 · 种下一朵蒲公英',
-    touch: '轻点草地 · 种下一朵蒲公英'
-  },
-  orbit: {
-    mouse: '拖动旋转 · 滚轮缩放视角',
-    touch: '拖动旋转 · 双指缩放'
-  }
-};
-
-function setMode(mode) {
-  currentMode = mode;
-  document.body.classList.toggle('mode-wind', mode === 'wind');
-  document.body.classList.toggle('mode-plant', mode === 'plant');
-  document.body.classList.toggle('mode-orbit', mode === 'orbit');
-
-  wind.setEnabled(mode === 'wind');
-  orbit.setActive(mode === 'orbit');
-  // Modes share state: planted dandelions stay in the meadow when the user
-  // switches tools, and the orbit pose is kept when they go back to wind.
-  dandelion.setEnabled(mode !== 'plant');
-
-  const hint = MODE_HINTS[mode];
-  if (hint) {
-    if (hintMouse) hintMouse.textContent = hint.mouse;
-    if (hintTouch) hintTouch.textContent = hint.touch;
-  }
-
-  // Re-show the instructions for a moment after each mode change.
-  document.body.classList.remove('interacted');
-  clearTimeout(hintTimer);
-  hintTimer = setTimeout(() => document.body.classList.add('interacted'), 6500);
-}
-
-const sigil = new SigilUI({ initial: 'wind', onMode: setMode });
-setMode('wind');
+if (hintMouse) hintMouse.textContent = '滑过草地 · 起风　·　拖动 · 视角　·　点击 · 种植';
+if (hintTouch) hintTouch.textContent = '单指滑过 · 起风　·　双指 · 视角　·　轻点 · 种植';
+const sigilEl = document.getElementById('sigil');
 
 /* ------------------------------------------------------------------ */
 /* ui                                                                  */
@@ -9091,6 +8978,8 @@ function updateUI() {
     lastShownWind = shown;
   }
 
+  if (sigilEl) sigilEl.classList.toggle('is-windy', wind.strength > 0.08);
+
   if (!interacted && dandelion.everDetached) {
     interacted = true;
     document.body.classList.add('interacted');
@@ -9099,14 +8988,40 @@ function updateUI() {
 }
 
 /* ------------------------------------------------------------------ */
-/* planting (mode 2)                                                   */
+/* planting (tap)                                                      */
 /* ------------------------------------------------------------------ */
 
 const planterRay = new THREE.Raycaster();
 const planterNdc = new THREE.Vector2();
+const taps = new Map();
+let tapMulti = false;
 
 canvas.addEventListener('pointerdown', (e) => {
-  if (currentMode !== 'plant') return;
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  if (taps.size > 0) tapMulti = true;
+  taps.set(e.pointerId, {
+    x: e.clientX,
+    y: e.clientY,
+    time: performance.now(),
+    moved: false
+  });
+});
+
+canvas.addEventListener('pointermove', (e) => {
+  const tap = taps.get(e.pointerId);
+  if (!tap) return;
+  if (Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 8) tap.moved = true;
+});
+
+function finishTap(e) {
+  const tap = taps.get(e.pointerId);
+  if (!tap) return;
+  const multi = tapMulti;
+  taps.delete(e.pointerId);
+  if (taps.size === 0) tapMulti = false;
+
+  if (multi || tap.moved) return;
+  if (performance.now() - tap.time > 380) return;
   if (e.pointerType === 'mouse' && e.button !== 0) return;
 
   planterNdc.set(
@@ -9119,15 +9034,31 @@ canvas.addEventListener('pointerdown', (e) => {
 
   const point = hits[0].point;
   if (Math.abs(point.x) > 20 || point.z < -30 || point.z > 12) return;
+  if (Math.hypot(point.x, point.z) < 1.0) return;
   field.spawnAt(point);
+
+  if (sigilEl) {
+    sigilEl.classList.remove('is-pulse');
+    void sigilEl.offsetWidth;
+    sigilEl.classList.add('is-pulse');
+    setTimeout(() => sigilEl.classList.remove('is-pulse'), 900);
+  }
+}
+
+canvas.addEventListener('pointerup', finishTap);
+canvas.addEventListener('pointercancel', (e) => {
+  taps.delete(e.pointerId);
+  if (taps.size === 0) tapMulti = false;
 });
 
 /* ------------------------------------------------------------------ */
 /* camera drift                                                        */
 /* ------------------------------------------------------------------ */
+/* camera drift                                                        */
+/* ------------------------------------------------------------------ */
 
 function updateCamera(t) {
-  if (currentMode === 'orbit' || orbit.hasView) {
+  if (orbit.hasView) {
     orbit.apply();
     return;
   }
@@ -9200,7 +9131,7 @@ function updateDebug() {
     `fps ${fps.toFixed(0)}\n` +
     `head ${String(dandelion.headCount).padStart(3)}  flying ${String(airborne.length).padStart(3)}\n` +
     `wind ${wind.strength.toFixed(2)}  energy ${wind.energy.toFixed(2)}  headair ${dandelion.headLocalSpeed.toFixed(2)}\n` +
-    `time ${sky.time.toFixed(2)}  mode ${currentMode}  wild ${field.count}  v_avg ${avgSpeed.toFixed(2)}`;
+    `time ${sky.time.toFixed(2)}  wild ${field.count}  v_avg ${avgSpeed.toFixed(2)}`;
 }
 
 function stepScene(dt) {
@@ -9291,16 +9222,15 @@ window.addEventListener('resize', () => {
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
   frameCamera();
-  if (currentMode === 'orbit' || orbit.hasView) orbit.apply();
+  if (orbit.hasView) orbit.apply();
   sky.resize();
   post.resize();
 });
 
 // A tiny console handle for tinkering.
 window.__dandy = {
-  scene, camera, renderer, wind, world, dandelion, field, orbit, sigil,
-  sky, post, fireflyRenderer, fireflyScene, devConsole,
-  get mode() { return currentMode; }
+  scene, camera, renderer, wind, world, dandelion, field, orbit,
+  sky, post, fireflyRenderer, fireflyScene, devConsole
 };
 return {};
 } };

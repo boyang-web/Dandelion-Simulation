@@ -1,11 +1,11 @@
 import * as THREE from 'three';
 
 /* ------------------------------------------------------------------ */
-/*  Orbit camera rig for mode 3                                        */
+/*  Always-on orbit / zoom rig                                         */
 /*                                                                     */
-/*  A small, art-directed orbit: enough yaw/pitch and dolly to feel    */
-/*  the meadow in three dimensions without turning the painted sky     */
-/*  into a spinning backdrop.                                           */
+/*  Desktop: hover is wind, left-drag is camera, wheel is zoom.         */
+/*  Touch: one finger is wind, two fingers are camera + pinch.          */
+/*  A short click/tap is left to the planting tap detector.             */
 /* ------------------------------------------------------------------ */
 
 export class OrbitRig {
@@ -29,46 +29,86 @@ export class OrbitRig {
     this.radius = 9.4;
     this.yaw = 0;
     this.pitch = 0.02;
-    this.active = false;
-    this.dragging = false;
     this.hasView = false;
+    this.dragging = false;
     this.pointers = new Map();
+    this.pending = false;
+    this.startX = 0;
+    this.startY = 0;
     this.lastX = 0;
     this.lastY = 0;
     this.pinchStart = 0;
     this.pinchRadius = this.radius;
-    this._bound = false;
+    this.lastCentroid = { x: 0, y: 0 };
+    this.onDragStart = null;
+    this.onDragEnd = null;
 
     this._bind();
   }
 
   _bind() {
     const down = (e) => {
-      if (!this.active || e.target !== this.canvas) return;
+      if (e.target !== this.canvas) return;
       if (e.pointerType === 'mouse' && e.button !== 0) return;
-      e.preventDefault();
-      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      this.pointers.set(e.pointerId, {
+        x: e.clientX,
+        y: e.clientY,
+        type: e.pointerType
+      });
       try { this.canvas.setPointerCapture(e.pointerId); } catch (err) { /* noop */ }
 
       if (this.pointers.size === 1) {
-        this.dragging = true;
+        this.pending = true;
+        this.startX = e.clientX;
+        this.startY = e.clientY;
         this.lastX = e.clientX;
         this.lastY = e.clientY;
-        document.body.classList.add('orbit-dragging');
       } else if (this.pointers.size === 2) {
+        this.pending = false;
+        this._beginDrag();
         const pts = [...this.pointers.values()];
         this.pinchStart = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
         this.pinchRadius = this.radius;
+        this.lastCentroid = {
+          x: (pts[0].x + pts[1].x) * 0.5,
+          y: (pts[0].y + pts[1].y) * 0.5
+        };
+        e.preventDefault();
       }
     };
 
     const move = (e) => {
-      if (!this.active || !this.pointers.has(e.pointerId)) return;
-      e.preventDefault();
-      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (!this.pointers.has(e.pointerId)) return;
+      this.pointers.set(e.pointerId, {
+        x: e.clientX,
+        y: e.clientY,
+        type: e.pointerType
+      });
 
       if (this.pointers.size >= 2) {
+        e.preventDefault();
         const pts = [...this.pointers.values()];
+        const centroid = {
+          x: (pts[0].x + pts[1].x) * 0.5,
+          y: (pts[0].y + pts[1].y) * 0.5
+        };
+        if (!this.pinchStart) {
+          this._beginDrag();
+          this.pinchStart = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+          this.pinchRadius = this.radius;
+          this.lastCentroid = centroid;
+        }
+
+        const dx = centroid.x - this.lastCentroid.x;
+        const dy = centroid.y - this.lastCentroid.y;
+        this.lastCentroid = centroid;
+        if (dx || dy) {
+          this.yaw = THREE.MathUtils.clamp(this.yaw - dx * 0.0032, -this.maxYaw, this.maxYaw);
+          this.pitch = THREE.MathUtils.clamp(this.pitch - dy * 0.0030, this.minPitch, this.maxPitch);
+          this.hasView = true;
+        }
+
         const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
         if (this.pinchStart > 1 && dist > 1) {
           this.radius = THREE.MathUtils.clamp(
@@ -77,11 +117,24 @@ export class OrbitRig {
             this.maxRadius
           );
           this.hasView = true;
-          this._apply();
         }
+        this._apply();
         return;
       }
 
+      // One touch is wind, not camera. The wind field owns that gesture.
+      if (e.pointerType === 'touch') return;
+
+      if (this.pending) {
+        if (Math.hypot(e.clientX - this.startX, e.clientY - this.startY) < 10) return;
+        this.pending = false;
+        this._beginDrag();
+        // Keep lastX/lastY at the press point: this first event should apply
+        // the movement that crossed the drag threshold.
+      }
+      if (!this.dragging) return;
+
+      e.preventDefault();
       const dx = e.clientX - this.lastX;
       const dy = e.clientY - this.lastY;
       this.lastX = e.clientX;
@@ -96,19 +149,20 @@ export class OrbitRig {
       if (!this.pointers.has(e.pointerId)) return;
       this.pointers.delete(e.pointerId);
       try { this.canvas.releasePointerCapture(e.pointerId); } catch (err) { /* noop */ }
+
+      if (this.dragging && this.pointers.size < 2) this._endDrag();
       if (this.pointers.size === 0) {
-        this.dragging = false;
-        document.body.classList.remove('orbit-dragging');
-      } else if (this.pointers.size === 1) {
-        const p = [...this.pointers.values()][0];
-        this.lastX = p.x;
-        this.lastY = p.y;
+        this.pending = false;
+        this.pinchStart = 0;
+      } else {
+        this.pinchStart = 0;
       }
     };
 
     const wheel = (e) => {
-      if (!this.active) return;
+      if (e.target !== this.canvas) return;
       e.preventDefault();
+      if (!this.hasView) this.syncFromCamera();
       this.radius = THREE.MathUtils.clamp(
         this.radius * Math.exp(e.deltaY * 0.0012),
         this.minRadius,
@@ -124,19 +178,21 @@ export class OrbitRig {
     this.canvas.addEventListener('pointercancel', up);
     this.canvas.addEventListener('lostpointercapture', up);
     this.canvas.addEventListener('wheel', wheel, { passive: false });
-    this._bound = true;
   }
 
-  setActive(on) {
-    this.active = !!on;
-    if (this.active) {
-      this.syncFromCamera();
-      this._apply();
-    } else {
-      this.pointers.clear();
-      this.dragging = false;
-      document.body.classList.remove('orbit-dragging');
-    }
+  _beginDrag() {
+    if (this.dragging) return;
+    if (!this.hasView) this.syncFromCamera();
+    this.dragging = true;
+    document.body.classList.add('orbit-dragging');
+    this.onDragStart?.();
+  }
+
+  _endDrag() {
+    if (!this.dragging) return;
+    this.dragging = false;
+    document.body.classList.remove('orbit-dragging');
+    this.onDragEnd?.();
   }
 
   syncFromCamera() {
