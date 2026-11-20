@@ -56642,8 +56642,8 @@ function createHillLayer({
         col += vec3(0.10, 0.062, 0.02) * smoothstep(0.82, 1.0, vGrad) * uWarm * 0.55;
 
         // scrub and folds: darker vegetation patches on the lower slopes
-        float patch = smoothstep(0.56, 0.9, vnoise(vLocal * vec2(0.13, 0.4) + 7.0));
-        col = mix(col, col * vec3(0.82, 0.87, 0.78), patch * 0.2 * (1.0 - vGrad * 0.55));
+        float scrub = smoothstep(0.56, 0.9, vnoise(vLocal * vec2(0.13, 0.4) + 7.0));
+        col = mix(col, col * vec3(0.82, 0.87, 0.78), scrub * 0.2 * (1.0 - vGrad * 0.55));
         col += vec3(0.026, 0.018, 0.0) * smoothstep(-18.0, 32.0, vLocal.x);
 
         // Keep the ridges in the same night air as the meadow: the CSS veil
