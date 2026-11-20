@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#e8e2d0" />
+  <title>远景档案 · 等风来</title>
+  <meta name="description" content="远景资产库：阔叶树与风车。树的枝干、叶片卡、风属性与风车结构都可以近距离查看。" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23e9e1c6'/%3E%3Cpath d='M16 28V12M16 18l-6-5M16 16l6-6M11 23h10' stroke='%2357663c' stroke-width='1.6' fill='none'/%3E%3Ccircle cx='16' cy='10' r='4' fill='%23788c4f'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="./css/vegetation.css" />
+  <script>
+    (function () {
+      function report(msg, stack) {
+        var el = document.createElement('pre');
+        el.className = 'js-errors';
+        el.textContent = String(msg) + '\n' + (stack || '');
+        document.body.appendChild(el);
+      }
+      window.addEventListener('error', function (e) { report(e.message, e.error && e.error.stack); });
+      window.addEventListener('unhandledrejection', function (e) {
+        var r = e.reason || {};
+        report('Promise: ' + (r.message || r), r.stack);
+      });
+    })();
+  </script>
+  <script type="importmap">
+    { "imports": { "three": "./vendor/three.module.js" } }
+  </script>
+</head>
+<body>
+  <div class="shell">
+    <aside class="rail">
+      <header class="rail__head">
+        <p class="kicker">LANDMARKS · ASSET LIBRARY</p>
+        <h1>远景档案</h1>
+        <p class="sub">树与风车 · 4 个可复用资产<br />3 个树变体 + 1 座风车</p>
+      </header>
+
+      <button class="all-btn" id="allBtn" type="button">
+        <span>全部陈列</span>
+        <em>04</em>
+      </button>
+
+      <nav class="asset-list" id="assetList" aria-label="远景资产列表"></nav>
+
+      <footer class="rail__foot">
+        <p>树 = 合并枝干 + 叶片卡 · 风属性</p>
+        <p>风车 = 砖塔 / 画廊 / 格栅叶片</p>
+        <p><a href="./vegetation.html">← 植物档案</a> · <a href="./">回到等风来</a></p>
+      </footer>
+    </aside>
+
+    <main class="view">
+      <canvas id="stage" aria-label="远景资产的三维预览"></canvas>
+
+      <div class="topbar">
+        <span class="badge">ASSET SHELF · FAR</span>
+        <label class="wind-control" for="wind">
+          <span>风</span>
+          <input id="wind" type="range" min="0" max="1" step="0.01" value="0.4" />
+          <output id="windVal">0.40</output>
+        </label>
+      </div>
+
+      <div class="actions">
+        <button id="variantsBtn" type="button" aria-pressed="false">显示 3 个变体</button>
+        <button id="reseedBtn" type="button">重新播种</button>
+      </div>
+
+      <section class="caption" aria-live="polite">
+        <p class="caption__kicker" id="capIndex">01 / TREE</p>
+        <h2 class="caption__title" id="capName">阔叶树 A</h2>
+        <p class="caption__en" id="capEn">Broadleaf · A</p>
+        <p class="caption__note" id="capNote"></p>
+        <p class="caption__meta" id="capMeta"></p>
+      </section>
+
+      <p class="hint">拖动旋转 · 滚轮缩放 · 风滑杆吹动树冠</p>
+    </main>
+  </div>
+
+  <script>
+    (function () {
+      if (location.protocol === 'file:') {
+        document.write('<script src="./vendor/three.global.js"><\/script>');
+        document.write('<script src="./js/bundle-landmarks.js?v=7"><\/script>');
+      } else {
+        document.write('<script type="module" src="./js/landmarks-preview.js?v=7"><\/script>');
+      }
+    })();
+  </script>
+</body>
+</html>

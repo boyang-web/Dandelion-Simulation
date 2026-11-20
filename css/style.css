@@ -1,0 +1,878 @@
+/* =========================================================
+   等风来 · 蒲公英
+   A quiet meadow, a procedural dandelion, and the wind.
+   ========================================================= */
+
+:root {
+  --ink: rgb(65, 75, 54);
+  --ink-soft: rgba(65, 75, 54, 0.62);
+  --ink-faint: rgba(65, 75, 54, 0.34);
+  --ink-line: rgba(65, 75, 54, 0.16);
+  --paper: #f7f0dd;
+  --wind: 0.05;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+  color: var(--ink);
+  background:
+    radial-gradient(60% 40% at 50% 2%, rgba(255, 248, 224, 0.34) 0%, rgba(255, 244, 212, 0.12) 42%, rgba(255, 244, 212, 0) 68%),
+    radial-gradient(100% 60% at 50% 24%, rgba(243, 222, 181, 0.10) 0%, rgba(243, 222, 181, 0) 60%),
+    radial-gradient(70% 48% at 48% 39%, rgba(111, 141, 145, 0.16) 0%, rgba(111, 141, 145, 0) 72%),
+    linear-gradient(180deg, #9fb9c4 0%, #b3c9c8 24%, #c8d5cb 42%, #dedfca 57%, #eee4ca 69%, #e3dbbe 100%);
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;
+  user-select: none;
+}
+
+/* ---------- atmosphere (CSS sky, clouds, sun) ---------- */
+
+.atmosphere,
+.night-veil,
+.golden-veil,
+.stars,
+.vignette,
+.grain {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.atmosphere {
+  z-index: 0;
+  overflow: hidden;
+  --cloud-hi: #fffdf6;
+  --cloud-lo: #c3cccc;
+  --cloud-warm: rgba(255, 180, 120, 0);
+}
+
+.sky-glow {
+  position: absolute;
+  left: var(--glow-x, 70%);
+  top: var(--glow-y, 9%);
+  width: 46vw;
+  height: 46vw;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle, rgba(255, 248, 219, 0.4) 0%, rgba(255, 240, 200, 0.12) 34%, rgba(255, 240, 200, 0) 66%);
+  filter: blur(30px);
+  will-change: left, top, opacity;
+}
+
+/* ---------- foreground clouds: pass in front of the sun ---------- */
+
+.fore-sky {
+  position: fixed;
+  inset: 0;
+  z-index: 5.4;
+  overflow: hidden;
+  pointer-events: none;
+  --cloud-hi: #fffdf6;
+  --cloud-lo: #c3cccc;
+  --cloud-warm: rgba(255, 180, 120, 0);
+}
+
+.fore-cloud {
+  position: absolute;
+  border-radius: 50%;
+  opacity: 0.34;
+  filter: blur(24px) saturate(1.02);
+  will-change: translate;
+  background:
+    radial-gradient(ellipse 44% 54% at 28% 54%, var(--cloud-hi) 0%, rgba(255, 255, 255, 0) 70%),
+    radial-gradient(ellipse 36% 44% at 49% 38%, var(--cloud-hi) 0%, rgba(255, 255, 255, 0) 72%),
+    radial-gradient(ellipse 30% 38% at 68% 58%, var(--cloud-hi) 0%, rgba(255, 255, 255, 0) 74%),
+    radial-gradient(ellipse 46% 22% at 48% 80%, var(--cloud-warm) 0%, rgba(255, 180, 120, 0) 74%),
+    radial-gradient(ellipse 52% 36% at 50% 76%, var(--cloud-lo) 0%, rgba(255, 255, 255, 0) 80%);
+}
+
+.fore-cloud--a {
+  width: 44vw;
+  height: 16vw;
+  top: 10vh;
+  left: -50vw;
+  animation: drift 130s linear infinite;
+  animation-delay: -69s;
+}
+
+.fore-cloud--b {
+  width: 36vw;
+  height: 13vw;
+  top: 30vh;
+  left: -40vw;
+  opacity: 0.28;
+  animation: drift 170s linear infinite;
+  animation-delay: -80s;
+}
+
+/* ---------- crepuscular rays (drawn behind the sun and clouds) ---------- */
+
+.sun-rays {
+  position: fixed;
+  inset: 0;
+  z-index: 2.8;
+  pointer-events: none;
+  opacity: 0;
+  mix-blend-mode: screen;
+  --ray-rgb: 255, 210, 160;
+  background:
+    repeating-conic-gradient(from 8deg at var(--ray-x, 80%) var(--ray-y, 25%),
+      rgba(var(--ray-rgb), 0.055) 0deg 1.1deg,
+      rgba(0, 0, 0, 0) 1.1deg 5.2deg),
+    repeating-conic-gradient(from 2deg at var(--ray-x, 80%) var(--ray-y, 25%),
+      rgba(var(--ray-rgb), 0.03) 0deg 0.5deg,
+      rgba(0, 0, 0, 0) 0.5deg 8.7deg);
+  -webkit-mask-image: radial-gradient(circle 110vmax at var(--ray-x, 80%) var(--ray-y, 25%),
+    transparent 0 2.5%, rgba(0, 0, 0, 0.65) 8%, rgba(0, 0, 0, 0.28) 20%, transparent 46%);
+  mask-image: radial-gradient(circle 110vmax at var(--ray-x, 80%) var(--ray-y, 25%),
+    transparent 0 2.5%, rgba(0, 0, 0, 0.65) 8%, rgba(0, 0, 0, 0.28) 20%, transparent 46%);
+  transition: opacity 0.5s ease;
+}
+
+@keyframes drift {
+  from { translate: -10vw 0; }
+  to   { translate: 150vw 0; }
+}
+
+@keyframes glow-drift {
+  from { transform: scale(0.97) translateY(0); }
+  to   { transform: scale(1.03) translateY(-1.2vh); }
+}
+
+/* ---------- WebGL stage ---------- */
+
+/* ---------- time of day overlays ---------- */
+
+.night-veil {
+  z-index: 2;
+  opacity: 0;
+  background:
+    linear-gradient(180deg, rgba(5, 13, 27, 0.78) 0%, rgba(14, 28, 48, 0.66) 32%, rgba(35, 39, 55, 0.5) 55%, rgba(58, 44, 49, 0.42) 72%, rgba(12, 14, 20, 0.62) 100%);
+}
+
+.golden-veil {
+  z-index: 2.1;
+  opacity: 0;
+  background:
+    radial-gradient(44% 38% at var(--golden-x, 80%) var(--golden-y, 20%), rgba(255, 180, 99, 0.42) 0%, rgba(255, 146, 86, 0.13) 45%, rgba(255, 146, 86, 0) 72%),
+    linear-gradient(to top, rgba(255, 126, 83, 0.15) 0%, rgba(255, 150, 100, 0.05) 35%, rgba(255, 150, 100, 0) 55%);
+}
+
+.stars {
+  z-index: 2.2;
+  opacity: 0;
+  background-size: cover;
+  background-position: center top;
+  background-repeat: no-repeat;
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 34%, transparent 57%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 34%, transparent 57%);
+  transition: opacity 0.7s ease;
+}
+
+/* ---------- sun & moon: two soft lights on one sky arc ---------- */
+
+.celestial {
+  position: fixed;
+  z-index: 5;
+  left: 50%;
+  top: 30%;
+  width: 168px;
+  height: 168px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  cursor: grab;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: left 0.09s linear, top 0.09s linear;
+}
+
+.celestial.is-hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.celestial.is-pressing,
+.celestial.is-active { cursor: grabbing; }
+
+.celestial.is-active { transition: none; }
+
+.celestial:focus-visible .celestial__halo {
+  opacity: 1;
+  transform: scale(1.06);
+}
+
+.celestial__halo {
+  position: absolute;
+  inset: -118px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--halo-color, rgba(255, 229, 182, 0.4)) 0%, var(--halo-color, rgba(255, 229, 182, 0.4)) 10%, rgba(255, 229, 182, 0) 68%);
+  filter: blur(22px);
+  opacity: 0.55;
+  pointer-events: none;
+  transition: transform 0.7s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.7s ease;
+  will-change: transform, opacity;
+}
+
+.celestial.is-pressing .celestial__halo { transform: scale(1.05); }
+.celestial.is-active .celestial__halo { transform: scale(1.14); opacity: 1; }
+
+.celestial__disc {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  border-radius: 50%;
+  pointer-events: none;
+  will-change: opacity, transform, filter;
+  transition: opacity 0.45s ease, filter 0.8s ease, transform 0.5s ease;
+}
+
+/* The sun is a broad, blurred bloom rather than a crisp disc. */
+.celestial__disc--sun {
+  width: 150px;
+  height: 150px;
+  margin: -75px 0 0 -75px;
+  opacity: 0;
+  background:
+    radial-gradient(circle at 50% 50%,
+      rgba(255, 253, 244, 0.8) 0%,
+      rgba(255, 246, 214, 0.62) 16%,
+      rgba(255, 230, 170, 0.34) 40%,
+      rgba(255, 205, 130, 0.1) 64%,
+      rgba(255, 195, 110, 0) 82%);
+  box-shadow:
+    0 0 42px rgba(255, 216, 150, 0.32),
+    0 0 120px rgba(255, 205, 125, 0.16);
+  filter: blur(10px) saturate(1.02);
+}
+
+.celestial.is-golden .celestial__disc--sun {
+  filter: blur(9px) saturate(1.26) hue-rotate(-7deg);
+}
+
+.celestial.is-active .celestial__disc { transform: scale(1.045); }
+
+/* The moon is a pale, low-contrast glow with only a hint of maria. */
+.celestial__disc--moon {
+  width: 120px;
+  height: 120px;
+  margin: -60px 0 0 -60px;
+  opacity: 0;
+  background:
+    radial-gradient(circle at 35% 32%, rgba(106, 118, 138, 0.14) 0 8%, transparent 9%),
+    radial-gradient(circle at 66% 56%, rgba(106, 118, 138, 0.1) 0 7%, transparent 8%),
+    radial-gradient(circle at 52% 75%, rgba(122, 134, 154, 0.1) 0 10%, transparent 11%),
+    radial-gradient(circle at 50% 50%,
+      rgba(250, 247, 233, 0.72) 0%,
+      rgba(232, 232, 222, 0.5) 36%,
+      rgba(190, 201, 216, 0.22) 68%,
+      rgba(160, 177, 201, 0) 88%);
+  box-shadow:
+    0 0 34px rgba(190, 207, 237, 0.18),
+    0 0 100px rgba(150, 175, 220, 0.1);
+  filter: blur(7px);
+}
+
+.celestial.is-golden .celestial__disc--moon {
+  filter: blur(6px) saturate(1.15) hue-rotate(-5deg);
+}
+
+.celestial__hint {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 2px 4px;
+  white-space: nowrap;
+  font-family: "Songti SC", "Noto Serif SC", "STSong", serif;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: var(--ink-soft);
+  text-shadow: 0 1px 14px rgba(20, 28, 20, 0.18);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.5s ease;
+}
+
+.celestial:hover .celestial__hint,
+.celestial:focus-visible .celestial__hint,
+.celestial.is-tipped .celestial__hint,
+.celestial.is-active .celestial__hint {
+  opacity: 0.78;
+}
+
+/* The arc is only an affordance: it appears when hovering or scrubbing. */
+.celestial-arc {
+  position: fixed;
+  inset: 0;
+  z-index: 2.6;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+
+.celestial-arc path {
+  fill: none;
+  stroke: var(--ink-soft);
+  stroke-width: 0.8;
+  stroke-linecap: round;
+  stroke-dasharray: 2 9;
+  vector-effect: non-scaling-stroke;
+}
+
+.celestial-arc__below {
+  stroke-dasharray: 1.5 12;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+.celestial:hover ~ .celestial-arc,
+.celestial-arc.is-visible {
+  opacity: 0.4;
+}
+
+.celestial-arc.is-visible .celestial-arc__below {
+  opacity: 0.55;
+}
+
+.celestial.is-below .celestial__hint {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .celestial { width: 152px; height: 152px; }
+  .celestial__halo { inset: -100px; }
+  .celestial__disc--sun { width: 134px; height: 134px; margin: -67px 0 0 -67px; }
+  .celestial__disc--moon { width: 106px; height: 106px; margin: -53px 0 0 -53px; }
+  .celestial__hint { font-size: 9px; letter-spacing: 0.12em; }
+}
+
+#stage {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  transform: scale(1.012);
+  transition: opacity 1.8s ease, transform 2.6s cubic-bezier(0.22, 1, 0.36, 1);
+  touch-action: none;
+  cursor: crosshair;
+}
+
+/* Fireflies live above the CSS night veil, so the tint cannot swallow them. */
+#fireflies {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 2.4s ease;
+}
+
+body.ready #fireflies {
+  opacity: 1;
+}
+
+body.ready #stage {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* ---------- vignette + film grain ---------- */
+
+.vignette {
+  z-index: 3;
+  background:
+    radial-gradient(118% 86% at 50% 40%, rgba(35, 45, 29, 0) 52%, rgba(35, 45, 29, 0.12) 82%, rgba(30, 40, 25, 0.2) 100%),
+    linear-gradient(to top, rgba(38, 50, 30, 0.18) 0%, rgba(38, 50, 30, 0) 24%);
+  mix-blend-mode: multiply;
+}
+
+.grain {
+  z-index: 4;
+  opacity: 0.055;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='280' height='280'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.7'/%3E%3C/svg%3E");
+  background-size: 280px 280px;
+}
+
+/* ---------- masthead ---------- */
+
+.masthead {
+  position: fixed;
+  z-index: 6;
+  top: clamp(28px, 5.4vh, 66px);
+  left: clamp(24px, 5vw, 78px);
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 1.4s ease 0.7s, transform 1.6s cubic-bezier(0.22, 1, 0.36, 1) 0.7s;
+}
+
+body.ready .masthead {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.masthead__kicker {
+  margin: 0 0 16px;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.36em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.masthead__title {
+  margin: 0;
+  font-family: "Songti SC", "Noto Serif SC", "Source Han Serif SC", "STSong", "SimSun", serif;
+  font-size: clamp(30px, 3.6vw, 48px);
+  font-weight: 500;
+  letter-spacing: 0.24em;
+  line-height: 1;
+  text-indent: 0.12em;
+  color: var(--ink);
+  text-shadow: 0 1px 26px rgba(24, 34, 22, 0.14);
+}
+
+.masthead__sub {
+  margin: 14px 0 0;
+  font-family: "Songti SC", "Noto Serif SC", "STSong", serif;
+  font-size: 11px;
+  letter-spacing: 0.24em;
+  color: var(--ink-soft);
+}
+
+/* ---------- hint ---------- */
+
+.hint {
+  position: fixed;
+  z-index: 6;
+  left: 50%;
+  bottom: max(30px, env(safe-area-inset-bottom, 0px) + 22px);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 4px;
+  transform: translateX(-50%);
+  color: var(--ink-soft);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 1.2s ease 1.6s, transform 0.9s ease;
+}
+
+body.ready .hint { opacity: 0.82; }
+
+.hint__rule {
+  position: relative;
+  width: 42px;
+  height: 1px;
+  overflow: hidden;
+  background: var(--ink-line);
+}
+
+.hint__rule::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--ink-soft);
+  transform: translateX(-100%);
+  animation: hint-sweep 3.6s cubic-bezier(0.5, 0, 0.2, 1) infinite;
+}
+
+.hint__text--touch { display: none; }
+
+@keyframes hint-sweep {
+  0%   { transform: translateX(-100%); opacity: 0; }
+  22%  { opacity: 0.8; }
+  64%  { transform: translateX(100%); opacity: 0.8; }
+  100% { transform: translateX(100%); opacity: 0; }
+}
+
+body.interacted .hint {
+  opacity: 0;
+  transform: translate(-50%, 8px);
+}
+
+@media (any-pointer: coarse) and (hover: none) {
+  .hint__text--mouse { display: none; }
+  .hint__text--touch { display: inline; }
+}
+
+/* ---------- wind meter ---------- */
+
+.meter {
+  position: fixed;
+  z-index: 6;
+  right: clamp(24px, 4vw, 52px);
+  bottom: max(32px, env(safe-area-inset-bottom, 0px) + 24px);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  opacity: 0;
+  transition: opacity 1.2s ease 1.8s;
+}
+
+body.ready .meter { opacity: 0.62; }
+
+.meter__label {
+  font-size: 8px;
+  letter-spacing: 0.34em;
+  color: var(--ink-soft);
+}
+
+.meter__track {
+  position: relative;
+  display: block;
+  width: 88px;
+  height: 1px;
+  background: var(--ink-line);
+}
+
+.meter__fill {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, var(--ink-faint), var(--ink));
+  transform: scaleX(var(--wind));
+  transform-origin: left center;
+  transition: transform 0.16s linear;
+}
+
+@media (max-width: 720px) {
+  .meter { display: none; }
+}
+
+/* ---------- fallback ---------- */
+
+.no-webgl {
+  position: fixed;
+  inset: 0;
+  z-index: 9;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+  font-family: "Songti SC", "Noto Serif SC", "STSong", serif;
+  font-size: 16px;
+  letter-spacing: 0.18em;
+  color: #414b36;
+  background: #e9e1c6;
+}
+
+body.no-webgl .no-webgl { display: flex; }
+body.no-webgl #stage { display: none; }
+
+.no-webgl__sub {
+  font-family: -apple-system, "PingFang SC", sans-serif;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  opacity: 0.55;
+}
+
+/* ---------- debug (only with ?debug) ---------- */
+
+.debug {
+  position: fixed;
+  z-index: 8;
+  left: 20px;
+  bottom: 20px;
+  margin: 0;
+  padding: 8px 10px;
+  font: 10px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.06em;
+  color: rgba(255, 250, 235, 0.9);
+  background: rgba(38, 46, 30, 0.55);
+  border-radius: 4px;
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+}
+
+/* ---------- clean mode for stills (?auto&clean) ---------- */
+
+body.clean .masthead,
+body.clean .hint,
+body.clean .meter,
+body.clean .debug,
+body.clean .celestial__hint { display: none !important; }
+
+/* ---------- still-frame mode (?still=N) ---------- */
+
+body.still *,
+body.still *::before,
+body.still *::after {
+  animation: none !important;
+  transition: none !important;
+}
+
+body.still #stage { opacity: 1 !important; transform: none !important; }
+
+.js-errors {
+  position: fixed;
+  z-index: 99;
+  inset: 12px auto auto 12px;
+  max-width: min(720px, calc(100vw - 24px));
+  margin: 0;
+  padding: 12px 14px;
+  white-space: pre-wrap;
+  font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #fff6ee;
+  background: rgba(104, 42, 28, 0.92);
+  border-radius: 4px;
+}
+
+/* ---------- small screens ---------- */
+
+@media (max-width: 560px) {
+  .masthead {
+    top: 26px;
+    left: 22px;
+  }
+  .masthead__kicker { margin-bottom: 12px; font-size: 8px; letter-spacing: 0.3em; }
+  .masthead__title { font-size: 28px; letter-spacing: 0.2em; }
+  .masthead__sub { margin-top: 10px; font-size: 9.5px; letter-spacing: 0.16em; }
+  .hint { bottom: max(22px, env(safe-area-inset-bottom, 0px) + 16px); font-size: 9px; letter-spacing: 0.14em; }
+  .hint__rule { width: 28px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fore-cloud, .sky-glow, .hint__rule::after { animation: none; }
+  #stage { transition-duration: 0.01ms; }
+  .sun-rays { transition: none; }
+}
+
+/* ---------- dev console ---------- */
+
+.dev-toggle {
+  position: fixed;
+  z-index: 80;
+  top: 14px;
+  right: 14px;
+  padding: 5px 8px;
+  border: 1px solid rgba(255, 250, 235, 0.22);
+  border-radius: 3px;
+  background: rgba(32, 39, 27, 0.72);
+  color: rgba(255, 250, 235, 0.86);
+  font: 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+}
+
+.dev-toggle:hover,
+.dev-toggle.is-open {
+  background: rgba(32, 39, 27, 0.92);
+}
+
+.dev-panel {
+  position: fixed;
+  z-index: 81;
+  top: 14px;
+  right: 14px;
+  display: flex;
+  flex-direction: column;
+  width: min(370px, calc(100vw - 28px));
+  max-height: calc(100vh - 28px);
+  overflow: hidden;
+  border: 1px solid rgba(255, 250, 235, 0.16);
+  border-radius: 8px;
+  background: rgba(25, 30, 23, 0.94);
+  color: #ece6d4;
+  box-shadow: 0 18px 60px rgba(15, 20, 12, 0.38);
+  backdrop-filter: blur(12px);
+  font: 10px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.dev-panel[hidden] { display: none; }
+
+.dev-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex: 0 0 auto;
+  padding: 13px 14px 11px;
+  border-bottom: 1px solid rgba(255, 250, 235, 0.11);
+}
+
+.dev-kicker {
+  margin: 0 0 4px;
+  font-size: 8px;
+  letter-spacing: 0.2em;
+  color: rgba(236, 230, 212, 0.42);
+}
+
+.dev-head h2 {
+  margin: 0;
+  font-family: "Songti SC", "Noto Serif SC", "STSong", serif;
+  font-size: 19px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+}
+
+.dev-close {
+  width: 22px;
+  height: 22px;
+  border: 1px solid rgba(255, 250, 235, 0.18);
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(236, 230, 212, 0.7);
+  font: 15px/1 ui-monospace, monospace;
+  cursor: pointer;
+}
+
+.dev-close:hover { color: #fffaf0; border-color: rgba(255, 250, 235, 0.5); }
+
+.dev-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 7px 14px 12px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 250, 235, 0.22) transparent;
+}
+
+.dev-scroll::-webkit-scrollbar { width: 4px; }
+.dev-scroll::-webkit-scrollbar-thumb { background: rgba(255, 250, 235, 0.2); border-radius: 4px; }
+
+.dev-group { margin: 9px 0 12px; }
+
+.dev-group h3 {
+  margin: 0 0 7px;
+  font: 8px/1.4 -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", sans-serif;
+  letter-spacing: 0.18em;
+  color: rgba(236, 230, 212, 0.42);
+}
+
+.dev-row { margin: 7px 0; }
+
+.dev-row label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 3px;
+  color: rgba(236, 230, 212, 0.82);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+
+.dev-value {
+  color: rgba(243, 206, 139, 0.9);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.dev-row input[type="range"] {
+  display: block;
+  width: 100%;
+  height: 2px;
+  margin: 0;
+  appearance: none;
+  background: rgba(255, 250, 235, 0.18);
+  outline: none;
+  cursor: pointer;
+}
+
+.dev-row input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #f3ce8b;
+  box-shadow: 0 0 0 3px rgba(243, 206, 139, 0.15);
+}
+
+.dev-row input[type="range"]::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 0;
+  border-radius: 50%;
+  background: #f3ce8b;
+}
+
+.dev-foot {
+  flex: 0 0 auto;
+  padding: 10px 14px 12px;
+  border-top: 1px solid rgba(255, 250, 235, 0.11);
+}
+
+.dev-actions { display: flex; gap: 7px; }
+
+.dev-actions button {
+  padding: 5px 9px;
+  border: 1px solid rgba(255, 250, 235, 0.18);
+  border-radius: 3px;
+  background: rgba(255, 250, 235, 0.06);
+  color: rgba(236, 230, 212, 0.78);
+  font: 9px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+.dev-actions button:hover { background: rgba(255, 250, 235, 0.12); color: #fffaf0; }
+
+.dev-status {
+  min-height: 14px;
+  margin: 7px 0 0;
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  color: #f3ce8b;
+}
+
+.dev-note {
+  margin: 2px 0 8px;
+  font-size: 8px;
+  line-height: 1.6;
+  letter-spacing: 0.03em;
+  color: rgba(236, 230, 212, 0.38);
+}
+
+.dev-log__title {
+  margin: 0 0 3px;
+  font-size: 8px;
+  letter-spacing: 0.14em;
+  color: rgba(236, 230, 212, 0.36);
+}
+
+.dev-log ol {
+  max-height: 70px;
+  overflow: auto;
+  margin: 0;
+  padding-left: 15px;
+  color: rgba(236, 230, 212, 0.5);
+  font-size: 8px;
+  line-height: 1.6;
+}
+
+@media (max-width: 560px) {
+  .dev-toggle { top: 10px; right: 10px; }
+  .dev-panel { top: 10px; right: 10px; width: calc(100vw - 20px); max-height: calc(100vh - 20px); }
+}
