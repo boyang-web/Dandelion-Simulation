@@ -50,15 +50,28 @@ const lookAt = new THREE.Vector3();
 
 function frameCamera() {
   const aspect = window.innerWidth / window.innerHeight;
+  const phoneLandscape = coarse && window.innerHeight <= 560 && aspect >= 1.2;
+
   if (aspect < 0.8) {
+    // Portrait phone: pull back so the head keeps its width.
+    camera.fov = 33;
     basePosition.set(0, 2.28, 11.7);
     lookAt.set(0, 2.56, 0);
+  } else if (phoneLandscape) {
+    // Landscape phone: a little wider and lower, so the short screen still
+    // shows the head, the grass foreground and the ridge line without the
+    // masthead/hint crowding the subject.
+    camera.fov = 35;
+    basePosition.set(0, 2.02, 9.9);
+    lookAt.set(0, 2.38, 0);
   } else {
+    camera.fov = 33;
     basePosition.set(0, 2.12, 9.4);
     lookAt.set(0, 2.53, 0);
   }
   camera.position.copy(basePosition);
   camera.lookAt(lookAt);
+  camera.updateProjectionMatrix();
 }
 frameCamera();
 

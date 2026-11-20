@@ -155,10 +155,16 @@ export class Sky {
   _layout() {
     const W = window.innerWidth;
     const H = window.innerHeight;
+    // A phone held sideways is very short: keep the noon body inside the top
+    // edge instead of letting it slide under the notch, and flatten the arc
+    // so sunrise/sunset still sit on the horizon.
+    const phoneLandscape =
+      window.matchMedia('(pointer: coarse)').matches &&
+      H <= 560 && W / H >= 1.2;
     this.cx = W * 0.5;
-    this.cy = H * 0.53;
-    this.rx = W * 0.4;
-    this.ry = H * 0.375;
+    this.cy = H * (phoneLandscape ? 0.56 : 0.53);
+    this.rx = W * (phoneLandscape ? 0.36 : 0.4);
+    this.ry = H * (phoneLandscape ? 0.30 : 0.375);
 
     if (this.arc && this.arcPath) {
       this.arc.setAttribute('viewBox', `0 0 ${W} ${H}`);

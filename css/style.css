@@ -876,3 +876,39 @@ body.still #stage { opacity: 1 !important; transform: none !important; }
   .dev-toggle { top: 10px; right: 10px; }
   .dev-panel { top: 10px; right: 10px; width: calc(100vw - 20px); max-height: calc(100vh - 20px); }
 }
+/* ---------- phone landscape ---------- */
+
+@media (orientation: landscape) and (max-height: 560px) and (pointer: coarse) {
+  .masthead {
+    top: max(12px, env(safe-area-inset-top, 0px) + 6px);
+    left: max(18px, env(safe-area-inset-left, 0px) + 14px);
+  }
+  .masthead__kicker { margin-bottom: 7px; font-size: 7.5px; letter-spacing: 0.26em; }
+  .masthead__title { font-size: 24px; letter-spacing: 0.22em; }
+  .masthead__sub { margin-top: 7px; font-size: 9px; letter-spacing: 0.18em; }
+  .hint {
+    bottom: max(12px, env(safe-area-inset-bottom, 0px) + 8px);
+    gap: 8px;
+    font-size: 8.5px;
+    letter-spacing: 0.14em;
+  }
+  .hint__rule { width: 24px; }
+  .meter { display: none; }
+
+  .celestial { width: 136px; height: 136px; }
+  .celestial__halo { inset: -84px; }
+  .celestial__disc--sun { width: 118px; height: 118px; margin: -59px 0 0 -59px; }
+  .celestial__disc--moon { width: 94px; height: 94px; margin: -47px 0 0 -47px; }
+  .celestial__hint { font-size: 8px; letter-spacing: 0.08em; }
+
+  .dev-toggle {
+    top: max(8px, env(safe-area-inset-top, 0px));
+    right: max(8px, env(safe-area-inset-right, 0px));
+  }
+  .dev-panel {
+    top: max(8px, env(safe-area-inset-top, 0px));
+    right: max(8px, env(safe-area-inset-right, 0px));
+    width: min(340px, calc(100vw - 16px));
+    max-height: calc(100vh - 16px);
+  }
+}

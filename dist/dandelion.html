@@ -887,6 +887,43 @@ body.still #stage { opacity: 1 !important; transform: none !important; }
   .dev-toggle { top: 10px; right: 10px; }
   .dev-panel { top: 10px; right: 10px; width: calc(100vw - 20px); max-height: calc(100vh - 20px); }
 }
+/* ---------- phone landscape ---------- */
+
+@media (orientation: landscape) and (max-height: 560px) and (pointer: coarse) {
+  .masthead {
+    top: max(12px, env(safe-area-inset-top, 0px) + 6px);
+    left: max(18px, env(safe-area-inset-left, 0px) + 14px);
+  }
+  .masthead__kicker { margin-bottom: 7px; font-size: 7.5px; letter-spacing: 0.26em; }
+  .masthead__title { font-size: 24px; letter-spacing: 0.22em; }
+  .masthead__sub { margin-top: 7px; font-size: 9px; letter-spacing: 0.18em; }
+  .hint {
+    bottom: max(12px, env(safe-area-inset-bottom, 0px) + 8px);
+    gap: 8px;
+    font-size: 8.5px;
+    letter-spacing: 0.14em;
+  }
+  .hint__rule { width: 24px; }
+  .meter { display: none; }
+
+  .celestial { width: 136px; height: 136px; }
+  .celestial__halo { inset: -84px; }
+  .celestial__disc--sun { width: 118px; height: 118px; margin: -59px 0 0 -59px; }
+  .celestial__disc--moon { width: 94px; height: 94px; margin: -47px 0 0 -47px; }
+  .celestial__hint { font-size: 8px; letter-spacing: 0.08em; }
+
+  .dev-toggle {
+    top: max(8px, env(safe-area-inset-top, 0px));
+    right: max(8px, env(safe-area-inset-right, 0px));
+  }
+  .dev-panel {
+    top: max(8px, env(safe-area-inset-top, 0px));
+    right: max(8px, env(safe-area-inset-right, 0px));
+    width: min(340px, calc(100vw - 16px));
+    max-height: calc(100vh - 16px);
+  }
+}
+
   </style>
   <script>
     // Show a readable message if the scene fails to start.
@@ -61044,10 +61081,16 @@ class Sky {
   _layout() {
     const W = window.innerWidth;
     const H = window.innerHeight;
+    // A phone held sideways is very short: keep the noon body inside the top
+    // edge instead of letting it slide under the notch, and flatten the arc
+    // so sunrise/sunset still sit on the horizon.
+    const phoneLandscape =
+      window.matchMedia('(pointer: coarse)').matches &&
+      H <= 560 && W / H >= 1.2;
     this.cx = W * 0.5;
-    this.cy = H * 0.53;
-    this.rx = W * 0.4;
-    this.ry = H * 0.375;
+    this.cy = H * (phoneLandscape ? 0.56 : 0.53);
+    this.rx = W * (phoneLandscape ? 0.36 : 0.4);
+    this.ry = H * (phoneLandscape ? 0.30 : 0.375);
 
     if (this.arc && this.arcPath) {
       this.arc.setAttribute('viewBox', `0 0 ${W} ${H}`);
@@ -62525,15 +62568,28 @@ const lookAt = new THREE.Vector3();
 
 function frameCamera() {
   const aspect = window.innerWidth / window.innerHeight;
+  const phoneLandscape = coarse && window.innerHeight <= 560 && aspect >= 1.2;
+
   if (aspect < 0.8) {
+    // Portrait phone: pull back so the head keeps its width.
+    camera.fov = 33;
     basePosition.set(0, 2.28, 11.7);
     lookAt.set(0, 2.56, 0);
+  } else if (phoneLandscape) {
+    // Landscape phone: a little wider and lower, so the short screen still
+    // shows the head, the grass foreground and the ridge line without the
+    // masthead/hint crowding the subject.
+    camera.fov = 35;
+    basePosition.set(0, 2.02, 9.9);
+    lookAt.set(0, 2.38, 0);
   } else {
+    camera.fov = 33;
     basePosition.set(0, 2.12, 9.4);
     lookAt.set(0, 2.53, 0);
   }
   camera.position.copy(basePosition);
   camera.lookAt(lookAt);
+  camera.updateProjectionMatrix();
 }
 frameCamera();
 
