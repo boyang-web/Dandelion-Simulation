@@ -912,3 +912,187 @@ body.still #stage { opacity: 1 !important; transform: none !important; }
     max-height: calc(100vh - 16px);
   }
 }
+
+/* ---------- sky sigil / mode switcher ---------- */
+
+.sigil-wrap {
+  position: fixed;
+  z-index: 5.6;
+  top: clamp(140px, 26vh, 260px);
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  transform: translateX(-50%);
+  pointer-events: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.sigil {
+  position: relative;
+  width: clamp(112px, 13vw, 152px);
+  aspect-ratio: 1;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: rgba(255, 246, 218, 0.82);
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  filter:
+    drop-shadow(0 0 10px rgba(255, 238, 186, 0.52))
+    drop-shadow(0 0 28px rgba(255, 218, 146, 0.24));
+  transition: opacity 0.4s ease, filter 0.4s ease;
+}
+
+.sigil__aura {
+  position: absolute;
+  inset: -28%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 242, 202, 0.26) 0%, rgba(255, 235, 180, 0.10) 42%, rgba(255, 235, 180, 0) 70%);
+  opacity: 0.55;
+  filter: blur(8px);
+  animation: sigil-breathe 9s ease-in-out infinite;
+}
+
+.sigil__mark {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  mix-blend-mode: screen;
+}
+
+.sigil__spin {
+  transform-box: view-box;
+  transform-origin: 100px 100px;
+}
+.sigil__spin--slow { animation: sigil-turn 120s linear infinite; }
+.sigil__spin--reverse { animation: sigil-turn 78s linear infinite reverse; }
+
+.sigil__mode {
+  transition: opacity 0.25s ease;
+  position: absolute;
+  left: 50%;
+  bottom: -23px;
+  transform: translateX(-50%);
+  font-family: "Songti SC", "Noto Serif SC", "STSong", serif;
+  font-size: 9px;
+  letter-spacing: 0.34em;
+  text-indent: 0.34em;
+  color: rgba(255, 248, 222, 0.7);
+  text-shadow: 0 0 12px rgba(255, 228, 166, 0.6);
+  white-space: nowrap;
+}
+
+.sigil-wrap.is-open .sigil,
+.sigil.is-lit {
+  color: rgba(255, 250, 230, 0.98);
+  filter:
+    drop-shadow(0 0 14px rgba(255, 242, 194, 0.78))
+    drop-shadow(0 0 38px rgba(255, 218, 146, 0.42));
+}
+.sigil-wrap.is-open .sigil__aura { opacity: 0.95; }
+.sigil-wrap.is-open .sigil__mode { opacity: 0; }
+
+.sigil.is-pulse .sigil__aura { animation: sigil-pulse 0.75s ease-out; }
+
+.mode-menu {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 244, 214, 0.22);
+  border-radius: 999px;
+  background: rgba(28, 34, 23, 0.56);
+  box-shadow: 0 10px 34px rgba(20, 26, 16, 0.24);
+  backdrop-filter: blur(10px);
+  pointer-events: auto;
+  animation: mode-menu-in 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.mode-menu[hidden] { display: none; }
+
+.mode-menu button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 5px;
+  border: 0;
+  background: none;
+  color: rgba(255, 248, 224, 0.64);
+  font-family: -apple-system, "PingFang SC", "Hiragino Sans GB", sans-serif;
+  font-size: 8px;
+  letter-spacing: 0.16em;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.2s ease, color 0.2s ease;
+}
+.mode-menu button:hover,
+.mode-menu button:focus-visible {
+  color: rgba(255, 252, 238, 0.95);
+  opacity: 1;
+  outline: none;
+}
+.mode-menu button.is-active { opacity: 1; color: rgba(255, 249, 226, 0.96); }
+
+.mode-menu__glyph {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(255, 244, 214, 0.24);
+  border-radius: 50%;
+  font-family: "Songti SC", "Noto Serif SC", "STSong", serif;
+  font-size: 13px;
+  letter-spacing: 0;
+}
+.mode-menu button.is-active .mode-menu__glyph {
+  border-color: rgba(255, 246, 208, 0.74);
+  background: rgba(255, 242, 200, 0.11);
+  box-shadow: 0 0 16px rgba(255, 226, 160, 0.28);
+}
+.mode-menu__name { white-space: nowrap; }
+
+@keyframes sigil-turn {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes sigil-breathe {
+  0%, 100% { transform: scale(0.96); opacity: 0.45; }
+  50%      { transform: scale(1.06); opacity: 0.72; }
+}
+@keyframes sigil-pulse {
+  0%   { transform: scale(0.96); opacity: 0.4; }
+  45%  { transform: scale(1.18); opacity: 0.95; }
+  100% { transform: scale(1.02); opacity: 0.55; }
+}
+@keyframes mode-menu-in {
+  from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+body.mode-plant #stage { cursor: crosshair; }
+body.mode-orbit #stage { cursor: grab; }
+body.orbit-dragging #stage { cursor: grabbing; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sigil__spin--slow,
+  .sigil__spin--reverse,
+  .sigil__aura,
+  .mode-menu { animation: none; }
+}
+
+@media (orientation: landscape) and (max-height: 560px) and (pointer: coarse) {
+  .sigil-wrap { top: 30vh; gap: 8px; }
+  .sigil { width: 96px; }
+  .sigil__mode { bottom: -18px; font-size: 8px; letter-spacing: 0.24em; }
+  .mode-menu { gap: 6px; padding: 6px 8px; }
+  .mode-menu__glyph { width: 28px; height: 28px; font-size: 11px; }
+  .mode-menu__name { font-size: 7px; letter-spacing: 0.1em; }
+}

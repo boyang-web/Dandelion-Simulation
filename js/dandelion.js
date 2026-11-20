@@ -14,6 +14,26 @@ const HEAD_SLOTS = 220;
 const MAX_SEEDS = 700;
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
+// Shared by the hero and every wild dandelion planted in mode 2. Sky writes
+// these once per time change; each plant reads them every frame.
+export const dandelionAtmosphere = {
+  fluffTint: new THREE.Color('#fffaf0'),
+  coreTint: new THREE.Color('#fff6df'),
+  coreOpacity: 1,
+  shadowFactor: 1
+};
+
+let seedTexture = null;
+let coreTexture = null;
+function getSeedTexture(renderer) {
+  if (!seedTexture) seedTexture = createSeedTexture(renderer);
+  return seedTexture;
+}
+function getCoreTexture(renderer) {
+  if (!coreTexture) coreTexture = createCoreTexture(renderer);
+  return coreTexture;
+}
+
 const STATE_HEAD = 1;
 const STATE_FLY = 2;
 
@@ -375,13 +395,17 @@ function makePlant() {
     side: THREE.DoubleSide
   });
 
+  const bracts = new THREE.InstancedMesh(bractGeometry, bractMaterial, 11);
+  const bractDummy = new THREE.Object3D();
   for (let i = 0; i < 11; i++) {
     const az = (i / 11) * Math.PI * 2 + 0.2;
-    const bract = new THREE.Mesh(bractGeometry, bractMaterial);
-    bract.position.set(Math.sin(az) * 0.05, 2.435, Math.cos(az) * 0.05 + 0.02);
-    bract.rotation.y = az;
-    sway.add(bract);
+    bractDummy.position.set(Math.sin(az) * 0.05, 2.435, Math.cos(az) * 0.05 + 0.02);
+    bractDummy.rotation.set(0, az, 0);
+    bractDummy.updateMatrix();
+    bracts.setMatrixAt(i, bractDummy.matrix);
   }
+  bracts.instanceMatrix.needsUpdate = true;
+  sway.add(bracts);
 
   // soft contact shadow
   const shadowCanvas = document.createElement('canvas');
@@ -430,7 +454,12 @@ function makePlant() {
   contact.userData.baseOpacity = 0.62;
   group.add(contact);
 
-  return { group, sway };
+  return {
+    group,
+    sway,
+    fadeMaterials: [stemMaterial, cupMaterial, bractMaterial],
+    shadowMaterials: [longShadow.material, contact.material]
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -449,22 +478,58 @@ function smoothstep(min, max, x) {
 /* ------------------------------------------------------------------ */
 
 export class Dandelion {
-  constructor({ scene, camera, renderer, wind }) {
+  constructor({
+    scene,
+    camera,
+    renderer,
+    wind,
+    headSlots = HEAD_SLOTS,
+    maxSeeds = MAX_SEEDS,
+    autoRegrow = true,
+    transient = false,
+    position = null,
+    rotationY = 0
+  }) {
     this.scene = scene;
     this.camera = camera;
     this.renderer = renderer;
     this.wind = wind;
+    this.headSlots = headSlots;
+    this.maxSeeds = maxSeeds;
+    this.autoRegrow = autoRegrow;
+    this.transient = transient;
+    this.enabled = true;
+    this.finished = false;
 
     const plant = makePlant();
     this.group = plant.group;
     this.swayGroup = plant.sway;
+    this._fadeMaterials = plant.fadeMaterials;
+    if (position) this.group.position.copy(position);
+    this.group.rotation.y = rotationY;
     scene.add(this.group);
+    this._spawnGrow = transient ? 0.02 : 1;
+    if (transient) {
+      this.swayGroup.scale.set(1, this._spawnGrow, 1);
+      for (const m of this._fadeMaterials) {
+        m.transparent = true;
+        m.opacity = 1;
+      }
+    }
 
     this.shadows = [];
     this.group.traverse((obj) => {
       if (obj.userData.isShadow) this.shadows.push(obj);
     });
     this._timeCoreOpacity = 1;
+    this._shadowFactor = 1;
+    this._stemOpacity = 1;
+    this._stemFading = false;
+    this._stemGone = false;
+    this._life = 0;
+    this._scatterClock = 0;
+    this._scatterInterval = 0.06 + Math.random() * 0.08;
+    this._stemLinger = transient ? 11.5 + Math.random() * 2.5 : Infinity;
 
     // The head is carried by the same pivot as the stem, so its anchor and
     // every seed sitting on it move together as the stem sways.
@@ -477,7 +542,12 @@ export class Dandelion {
     this.sunDir = new THREE.Vector3(5.5, 8.5, 4.5).normalize();
     this._sunTint = new THREE.Color();
 
-    this.texture = createSeedTexture(renderer);
+    this.group.updateMatrixWorld(true);
+    this.swayGroup.updateMatrixWorld(true);
+    this.headOrigin.copy(HEAD_ORIGIN).applyMatrix4(this.swayGroup.matrixWorld);
+    this.headCenter.copy(HEAD_CENTER).applyMatrix4(this.swayGroup.matrixWorld);
+
+    this.texture = getSeedTexture(renderer);
 
     const geometry = new THREE.PlaneGeometry(0.5, 1);
     const material = new THREE.MeshBasicMaterial({
@@ -490,19 +560,19 @@ export class Dandelion {
       toneMapped: false
     });
 
-    this.mesh = new THREE.InstancedMesh(geometry, material, MAX_SEEDS);
+    this.mesh = new THREE.InstancedMesh(geometry, material, this.maxSeeds);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 2;
     scene.add(this.mesh);
 
     this._zero = new THREE.Matrix4().makeScale(0, 0, 0);
-    for (let i = 0; i < MAX_SEEDS; i++) this.mesh.setMatrixAt(i, this._zero);
+    for (let i = 0; i < this.maxSeeds; i++) this.mesh.setMatrixAt(i, this._zero);
 
     this.core = new THREE.Mesh(
       new THREE.PlaneGeometry(1, 1),
       new THREE.MeshBasicMaterial({
-        map: createCoreTexture(renderer),
+        map: getCoreTexture(renderer),
         transparent: true,
         depthWrite: false,
         depthTest: false,
@@ -517,7 +587,7 @@ export class Dandelion {
 
     // A whisper of per-seed warmth so the head isn't a flat white ball.
     const tint = new THREE.Color();
-    for (let i = 0; i < MAX_SEEDS; i++) {
+    for (let i = 0; i < this.maxSeeds; i++) {
       const v = 0.95 + Math.random() * 0.05;
       tint.setRGB(v, v * 0.995, v * 0.955);
       this.mesh.setColorAt(i, tint);
@@ -529,7 +599,7 @@ export class Dandelion {
 
     this.seeds = [];
     this.freeSeedIndices = [];
-    for (let i = 0; i < MAX_SEEDS; i++) {
+    for (let i = 0; i < this.maxSeeds; i++) {
       this.seeds.push({
         index: i,
         active: false,
@@ -557,7 +627,7 @@ export class Dandelion {
     this.headCount = 0;
     this.everDetached = false;
 
-    for (let i = 0; i < HEAD_SLOTS; i++) {
+    for (let i = 0; i < this.headSlots; i++) {
       const seed = this._takeSeed();
       if (!seed) break;
       this._attachSeed(seed, i, true);
@@ -596,8 +666,8 @@ export class Dandelion {
     const cap = 1.94; // a little more than a hemisphere, so the head sits on the stem
     const cosMin = Math.cos(cap);
 
-    for (let i = 0; i < HEAD_SLOTS; i++) {
-      const u = (i + 0.5) / HEAD_SLOTS;
+    for (let i = 0; i < this.headSlots; i++) {
+      const u = (i + 0.5) / this.headSlots;
       const z = 1 - (1 - cosMin) * u;
       const r = Math.sqrt(Math.max(0, 1 - z * z));
       const a = i * GOLDEN_ANGLE;
@@ -666,7 +736,7 @@ export class Dandelion {
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
   }
 
-  _detachSeed(seed) {
+  _detachSeed(seed, gentle = false) {
     const e = easeOutCubic(seed.grow);
     seed.center
       .copy(this.headOrigin)
@@ -678,13 +748,22 @@ export class Dandelion {
     seed.flightFrom = seed.scale * e;
     seed.flightScale = 0.90 + Math.random() * 0.18;
 
-    // inherit part of the gust; the rest of the push arrives over the next
-    // few frames while the seed is exposed to the moving air
-    seed.vel.copy(this.headLocalAir).multiplyScalar(0.26 + Math.random() * 0.18);
-    seed.vel.addScaledVector(seed.dir, 0.3 + Math.random() * 0.5);
-    seed.vel.x += (Math.random() - 0.5) * 0.45;
-    seed.vel.y += 0.08 + Math.random() * 0.35;
-    seed.vel.z += (Math.random() - 0.5) * 0.45;
+    if (gentle) {
+      // A planted dandelion lets its seeds go one by one, without a gust:
+      // just enough outward push to leave the head and drift.
+      seed.vel.copy(seed.dir).multiplyScalar(0.10 + Math.random() * 0.10);
+      seed.vel.x += (Math.random() - 0.5) * 0.08;
+      seed.vel.y += 0.02 + Math.random() * 0.06;
+      seed.vel.z += (Math.random() - 0.5) * 0.08;
+    } else {
+      // inherit part of the gust; the rest of the push arrives over the next
+      // few frames while the seed is exposed to the moving air
+      seed.vel.copy(this.headLocalAir).multiplyScalar(0.26 + Math.random() * 0.18);
+      seed.vel.addScaledVector(seed.dir, 0.3 + Math.random() * 0.5);
+      seed.vel.x += (Math.random() - 0.5) * 0.45;
+      seed.vel.y += 0.08 + Math.random() * 0.35;
+      seed.vel.z += (Math.random() - 0.5) * 0.45;
+    }
 
     seed.state = STATE_FLY;
     seed.age = 0;
@@ -746,13 +825,112 @@ export class Dandelion {
     this.mesh.material.color.copy(fluffTint);
     this.core.material.color.copy(coreTint);
     this._timeCoreOpacity = coreOpacity;
+    this._shadowFactor = shadowFactor;
     for (const shadow of this.shadows) {
-      shadow.material.opacity = shadow.userData.baseOpacity * shadowFactor;
+      shadow.material.opacity =
+        shadow.userData.baseOpacity * shadowFactor * this._stemOpacity;
     }
   }
 
+  setEnabled(on) {
+    this.enabled = !!on;
+    this.group.visible = this.enabled && !this._stemGone;
+    this.mesh.visible = this.enabled;
+    this.core.visible = this.enabled && this.headCount > 0;
+  }
+
+  _clearHeadSeeds() {
+    for (const seed of this.seeds) {
+      if (!seed.active || seed.state !== STATE_HEAD) continue;
+      const slot = this.slots[seed.slot];
+      if (slot) slot.seed = null;
+      this.freeSlots.push(seed.slot);
+      this.headCount--;
+      this._releaseSeed(seed);
+    }
+  }
+
+  _updateTransient(dt) {
+    this._life += dt;
+
+    if (!this._stemFading) {
+      if (this._life > 1.6) {
+        this._scatterClock += dt;
+        if (this._scatterClock >= this._scatterInterval && this.headCount > 0) {
+          this._scatterClock = 0;
+          this._scatterInterval = 0.06 + Math.random() * 0.08;
+          let pick = null;
+          let seen = 0;
+          for (const seed of this.seeds) {
+            if (!seed.active || seed.state !== STATE_HEAD) continue;
+            if (seed.delay > 0 || seed.grow < 0.55) continue;
+            seen++;
+            if (Math.random() < 1 / seen) pick = seed;
+          }
+          if (pick) this._detachSeed(pick, true);
+        }
+      }
+
+      if (this._life > this._stemLinger) {
+        this._stemFading = true;
+      }
+    }
+
+    if (this._stemFading) {
+      this._stemOpacity = Math.max(0, this._stemOpacity - dt / 1.25);
+      for (const m of this._fadeMaterials) m.opacity = this._stemOpacity;
+      for (const shadow of this.shadows) {
+        shadow.material.opacity =
+          shadow.userData.baseOpacity * this._shadowFactor * this._stemOpacity;
+      }
+      if (this._stemOpacity <= 0.001) {
+        this._stemGone = true;
+        this._clearHeadSeeds();
+        this.group.visible = false;
+        this.core.visible = false;
+      }
+    }
+  }
+
+  dispose() {
+    this.finished = true;
+    this.scene.remove(this.group);
+    this.scene.remove(this.mesh);
+    this.scene.remove(this.core);
+    const geometries = new Set();
+    const materials = new Set();
+    this.group.traverse((obj) => {
+      if (obj.geometry) geometries.add(obj.geometry);
+      if (obj.material) materials.add(obj.material);
+    });
+    geometries.add(this.mesh.geometry);
+    materials.add(this.mesh.material);
+    geometries.add(this.core.geometry);
+    materials.add(this.core.material);
+    for (const g of geometries) g.dispose();
+    // Textures are shared by every plant; only the materials are per plant.
+    for (const m of materials) m.dispose();
+  }
+
   update(dt, t) {
+    if (!this.enabled) return;
+
+    const at = dandelionAtmosphere;
+    this.mesh.material.color.copy(at.fluffTint);
+    this.core.material.color.copy(at.coreTint);
+    this._timeCoreOpacity = at.coreOpacity;
+    this._shadowFactor = at.shadowFactor;
+    for (const shadow of this.shadows) {
+      shadow.material.opacity =
+        shadow.userData.baseOpacity * at.shadowFactor * this._stemOpacity;
+    }
+
     const wind = this.wind;
+
+    if (this.transient && this._spawnGrow < 1) {
+      this._spawnGrow = Math.min(1, this._spawnGrow + dt / 0.65);
+      this.swayGroup.scale.set(1, Math.max(0.02, easeOutCubic(this._spawnGrow)), 1);
+    }
 
     // How much air is actually moving over the head right now?
     const headMag = wind.localFactorAtWorld(this.headCenter, this.headLocalAir);
@@ -794,6 +972,8 @@ export class Dandelion {
     this.headOrigin.copy(HEAD_ORIGIN).applyMatrix4(this.swayGroup.matrixWorld);
     this.headCenter.copy(HEAD_CENTER).applyMatrix4(this.swayGroup.matrixWorld);
 
+    if (this.transient && !this._stemGone) this._updateTransient(dt);
+
     for (let i = 0; i < this.seeds.length; i++) {
       const seed = this.seeds[i];
 
@@ -821,7 +1001,7 @@ export class Dandelion {
           continue;
         }
 
-        const scale = seed.scale * e;
+        const scale = seed.scale * e * this._stemOpacity;
         const half = scale * 0.5;
 
         // the seed is rooted at the receptacle; its fluff points outward
@@ -922,8 +1102,8 @@ export class Dandelion {
       }
     }
 
-    // ---- and quietly grows them back ---------------------------------
-    if (this.freeSlots.length > 0) {
+    // ---- and quietly grows them back (hero only) ----------------------
+    if (this.autoRegrow && this.freeSlots.length > 0) {
       this.regrowTimer -= dt;
       if (this.regrowTimer <= 0) {
         this._regrowOne();
@@ -935,8 +1115,12 @@ export class Dandelion {
 
     this.mesh.instanceMatrix.needsUpdate = true;
 
+    if (this.transient && this._stemGone && !this.seeds.some((s) => s.active)) {
+      this.finished = true;
+    }
+
     // the soft inner fluff fades with the head
-    const fill = this.headCount / HEAD_SLOTS;
+    const fill = this.headCount / this.headSlots;
     if (fill > 0.015) {
       this.core.visible = true;
       this.core.quaternion.copy(this.camera.quaternion);
@@ -945,7 +1129,7 @@ export class Dandelion {
       this.core.position.addScaledVector(this.headLocalAir, 0.006);
       const size = 1.18 + fill * 0.28;
       this.core.scale.setScalar(size);
-      this.core.material.opacity = (0.32 + fill * 0.5) * this._timeCoreOpacity;
+      this.core.material.opacity = (0.32 + fill * 0.5) * this._timeCoreOpacity * this._stemOpacity * Math.min(1, this._spawnGrow * 2);
     } else {
       this.core.visible = false;
     }

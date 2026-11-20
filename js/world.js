@@ -98,7 +98,7 @@ function createGround() {
 /* a thin treeline sitting on the near ridge                           */
 /* ------------------------------------------------------------------ */
 
-function createTreeline({ z = -50, width = 200, segments = 440 } = {}) {
+function createTreeline({ radius = 50, width = 200, segments = 440 } = {}) {
   const rand = (i) => {
     const s = Math.sin(i * 127.1 + 311.7) * 43758.5453;
     return s - Math.floor(s);
@@ -126,12 +126,19 @@ function createTreeline({ z = -50, width = 200, segments = 440 } = {}) {
 
   const positions = [];
   const grads = [];
+  const us = [];
   const indices = [];
   for (let i = 0; i <= segments; i++) {
-    const x = -width / 2 + (i / segments) * width;
-    const y = terrainHeight(x, z) + 0.08 + crown(x);
-    positions.push(x, y, 0, x, -6, 0);
+    const a = (i / segments) * Math.PI * 2;
+    const x = Math.sin(a) * radius;
+    const z = -Math.cos(a) * radius;
+    const profileX = THREE.MathUtils.clamp(
+      radius * Math.tan(a), -width * 0.5, width * 0.5
+    );
+    const y = terrainHeight(x, z) + 0.08 + crown(profileX);
+    positions.push(x, y, z, x, -6, z);
     grads.push(1, 0);
+    us.push(a * radius, a * radius);
   }
   for (let i = 0; i < segments; i++) {
     const a = i * 2;
@@ -141,6 +148,7 @@ function createTreeline({ z = -50, width = 200, segments = 440 } = {}) {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.setAttribute('aGrad', new THREE.Float32BufferAttribute(grads, 1));
+  geometry.setAttribute('aU', new THREE.Float32BufferAttribute(us, 1));
   geometry.setIndex(indices);
 
   const material = new THREE.ShaderMaterial({
@@ -154,11 +162,12 @@ function createTreeline({ z = -50, width = 200, segments = 440 } = {}) {
     },
     vertexShader: /* glsl */ `
       attribute float aGrad;
+      attribute float aU;
       varying float vGrad;
       varying vec2 vLocal;
       void main() {
         vGrad = aGrad;
-        vLocal = position.xy;
+        vLocal = vec2(aU, position.y);
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
     `,
@@ -183,11 +192,12 @@ function createTreeline({ z = -50, width = 200, segments = 440 } = {}) {
         gl_FragColor = vec4(col, 1.0);
         #include <colorspace_fragment>
       }
-    `
+    `,
+    side: THREE.DoubleSide
   });
 
   const mesh = new THREE.Mesh(geometry, material);
-  mesh.position.z = z;
+  mesh.frustumCulled = false;
   mesh.userData.baseHaze = new THREE.Color('#ddd7bf');
   return mesh;
 }
@@ -196,7 +206,7 @@ function createTreeline({ z = -50, width = 200, segments = 440 } = {}) {
 /* valley mist between the near and middle ridges                      */
 /* ------------------------------------------------------------------ */
 
-function createValleyMist({ z = -74, width = 460, height = 26 } = {}) {
+function createValleyMist({ radius = 74, height = 26 } = {}) {
   const material = new THREE.ShaderMaterial({
     uniforms: {
       uColor: { value: new THREE.Color('#e7dfc3') },
@@ -233,9 +243,11 @@ function createValleyMist({ z = -74, width = 460, height = 26 } = {}) {
     toneMapped: false
   });
 
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material);
-  mesh.position.set(0, 10, z);
+  const geometry = new THREE.CylinderGeometry(radius, radius, height, 200, 1, true);
+  geometry.translate(0, 10, 0);
+  const mesh = new THREE.Mesh(geometry, material);
   mesh.renderOrder = 1;
+  mesh.frustumCulled = false;
   return mesh;
 }
 
@@ -244,7 +256,7 @@ function createValleyMist({ z = -74, width = 460, height = 26 } = {}) {
 /* ------------------------------------------------------------------ */
 
 function createHillLayer({
-  z,
+  radius,
   width,
   base,
   amp,
@@ -253,10 +265,11 @@ function createHillLayer({
   high,
   haze,
   mist,
-  segments = 190
+  segments = 288
 }) {
   const positions = [];
   const gradients = [];
+  const us = [];
   const indices = [];
 
   const heightAt = (x) => {
@@ -274,10 +287,16 @@ function createHillLayer({
   };
 
   for (let i = 0; i <= segments; i++) {
-    const x = -width * 0.5 + (i / segments) * width;
-    const y = heightAt(x);
-    positions.push(x, y, 0, x, -6, 0);
+    const a = (i / segments) * Math.PI * 2;
+    const x = Math.sin(a) * radius;
+    const z = -Math.cos(a) * radius;
+    const profileX = THREE.MathUtils.clamp(
+      radius * Math.tan(a), -width * 0.5, width * 0.5
+    );
+    const y = heightAt(profileX);
+    positions.push(x, y, z, x, -6, z);
     gradients.push(1, 0);
+    us.push(a * radius, a * radius);
   }
 
   for (let i = 0; i < segments; i++) {
@@ -288,6 +307,7 @@ function createHillLayer({
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.setAttribute('aGrad', new THREE.Float32BufferAttribute(gradients, 1));
+  geometry.setAttribute('aU', new THREE.Float32BufferAttribute(us, 1));
   geometry.setIndex(indices);
 
   const material = new THREE.ShaderMaterial({
@@ -302,11 +322,14 @@ function createHillLayer({
     },
     vertexShader: /* glsl */ `
       attribute float aGrad;
+      attribute float aU;
       varying float vGrad;
       varying vec2 vLocal;
+      varying float vX;
       void main() {
         vGrad = aGrad;
-        vLocal = position.xy;
+        vX = position.x;
+        vLocal = vec2(aU, position.y);
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
     `,
@@ -320,6 +343,7 @@ function createHillLayer({
       uniform float uTime;
       varying float vGrad;
       varying vec2 vLocal;
+      varying float vX;
 
       ${NOISE_GLSL}
 
@@ -330,12 +354,11 @@ function createHillLayer({
         vec3 col = mix(uLow, uHigh, smoothstep(0.05, 1.0, vGrad));
         col *= 0.965 + (n - 0.5) * 0.08 + (fine - 0.5) * 0.025;
 
-        // Valley haze at the foot of each ridge, thinning toward the crest. The
-      // colour keeps a slow noise so the band never reads as a flat cut-out.
-      float hazeNoise = vnoise(vLocal * vec2(0.55, 1.4) + vec2(uTime * 0.012, 0.0));
-      vec3 hazeCol = uHaze * (0.955 + 0.06 * hazeNoise + 0.025 * vnoise(vLocal * 2.2));
-      float mistMix = (0.34 + 0.66 * (1.0 - vGrad)) * uMist;
-      col = mix(col, hazeCol, clamp(mistMix, 0.0, 0.94));
+        // Valley haze at the foot of each ridge, thinning toward the crest.
+        float hazeNoise = vnoise(vLocal * vec2(0.55, 1.4) + vec2(uTime * 0.012, 0.0));
+        vec3 hazeCol = uHaze * (0.955 + 0.06 * hazeNoise + 0.025 * vnoise(vLocal * 2.2));
+        float mistMix = (0.34 + 0.66 * (1.0 - vGrad)) * uMist;
+        col = mix(col, hazeCol, clamp(mistMix, 0.0, 0.94));
 
         // a quiet rim of sunlight on the crest, warmer on the sun side
         col += uHigh * smoothstep(0.88, 1.0, vGrad) * 0.05;
@@ -344,20 +367,20 @@ function createHillLayer({
         // scrub and folds: darker vegetation patches on the lower slopes
         float scrub = smoothstep(0.56, 0.9, vnoise(vLocal * vec2(0.13, 0.4) + 7.0));
         col = mix(col, col * vec3(0.82, 0.87, 0.78), scrub * 0.2 * (1.0 - vGrad * 0.55));
-        col += vec3(0.026, 0.018, 0.0) * smoothstep(-18.0, 32.0, vLocal.x);
+        col += vec3(0.026, 0.018, 0.0) * smoothstep(-18.0, 32.0, vX);
 
-        // Keep the ridges in the same night air as the meadow: the CSS veil
-        // still darkens everything, this only removes the daylight haze.
+        // Keep the ridges in the same night air as the meadow.
         col = mix(col, col * vec3(0.30, 0.37, 0.52), uNight * 0.72);
 
         gl_FragColor = vec4(col, 1.0);
         #include <colorspace_fragment>
       }
-    `
+    `,
+    side: THREE.DoubleSide
   });
 
   const mesh = new THREE.Mesh(geometry, material);
-  mesh.position.z = z;
+  mesh.frustumCulled = false;
   mesh.userData.baseHaze = new THREE.Color(haze);
   return mesh;
 }
@@ -655,7 +678,7 @@ function createMotes() {
 function buildHills() {
   return [
     createHillLayer({
-      z: -150,
+      radius: 150,
       width: 760,
       base: 14.0,
       amp: 8.5,
@@ -667,7 +690,7 @@ function buildHills() {
       segments: 300
     }),
     createHillLayer({
-      z: -95,
+      radius: 95,
       width: 500,
       base: 8.0,
       amp: 5.0,
@@ -679,7 +702,7 @@ function buildHills() {
       segments: 260
     }),
     createHillLayer({
-      z: -55,
+      radius: 55,
       width: 300,
       base: 3.6,
       amp: 3.4,
@@ -692,7 +715,7 @@ function buildHills() {
   ];
 }
 
-export function createWorld(scene) {
+export function createWorld(scene, { camera } = {}) {
   const group = new THREE.Group();
   scene.add(group);
 
@@ -712,6 +735,7 @@ export function createWorld(scene) {
   // sitting behind the ridges, so the light on them agrees with the ridges.
   const clouds = createClouds({
     scene: group,
+    camera,
     coarse: window.matchMedia('(pointer: coarse)').matches
   });
 
@@ -846,7 +870,7 @@ export function createWorld(scene) {
 /* used by distant.html to study the horizon without the meadow        */
 /* ------------------------------------------------------------------ */
 
-export function createDistantWorld(scene) {
+export function createDistantWorld(scene, { camera } = {}) {
   const group = new THREE.Group();
   scene.add(group);
 
@@ -864,6 +888,7 @@ export function createDistantWorld(scene) {
 
   const clouds = createClouds({
     scene: group,
+    camera,
     coarse: window.matchMedia('(pointer: coarse)').matches
   });
 

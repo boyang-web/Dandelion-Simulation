@@ -145,38 +145,41 @@ export function createClouds({ scene, camera, coarse = false }) {
   group.frustumCulled = false;
   if (scene) scene.add(group);
 
-  // Distance bands. The near band sits just above the ridge line, the far
-  // band is huge and soft behind everything.
+  // The clouds live on a ring around the meadow, so orbiting the camera does
+  // not run out of sky. Each plane turns to face the camera every frame.
   const layers = [
     {
-      z: -335,
+      radius: 335,
       y: 30,
       w: 520,
       h: 86,
       haze: 0.46,
       opacity: 0.85,
       speed: 1.6,
-      count: coarse ? 1 : 2
+      count: coarse ? 2 : 3,
+      phase: -0.35
     },
     {
-      z: -252,
+      radius: 252,
       y: 55,
       w: 300,
       h: 92,
       haze: 0.3,
       opacity: 0.95,
       speed: 3.1,
-      count: coarse ? 1 : 2
+      count: coarse ? 2 : 3,
+      phase: 0.55
     },
     {
-      z: -186,
+      radius: 186,
       y: 46,
       w: 210,
       h: 70,
       haze: 0.16,
       opacity: 0.95,
       speed: 5.0,
-      count: coarse ? 1 : 2
+      count: coarse ? 2 : 2,
+      phase: -0.15
     }
   ];
 
@@ -189,13 +192,12 @@ export function createClouds({ scene, camera, coarse = false }) {
       const width = layer.w * (0.82 + Math.random() * 0.45);
       const height = layer.h * (0.8 + Math.random() * 0.5);
       mesh.scale.set(width, height, 1);
-      mesh.position.set(
-        (i - (layer.count - 1) / 2) * layer.w * 0.45 + (Math.random() - 0.5) * 40,
-        layer.y + (Math.random() - 0.5) * height * 0.35,
-        layer.z + (Math.random() - 0.5) * 14
-      );
-      // Draw with the other far transparent layers, before the seeds and
-      // birds, so a rising seed is never painted over by a distant cloud.
+
+      const angle = layer.phase + (i / layer.count) * TAU + (Math.random() - 0.5) * 0.35;
+      const radius = layer.radius + (Math.random() - 0.5) * 16;
+      const baseY = layer.y + (Math.random() - 0.5) * height * 0.35;
+      mesh.position.set(Math.sin(angle) * radius, baseY, -Math.cos(angle) * radius);
+      mesh.rotation.y = Math.atan2(-mesh.position.x, -mesh.position.z);
       mesh.renderOrder = 0;
       mesh.frustumCulled = false;
       group.add(mesh);
@@ -203,7 +205,9 @@ export function createClouds({ scene, camera, coarse = false }) {
         mesh,
         mat,
         layer,
-        baseY: mesh.position.y,
+        radius,
+        angle,
+        baseY,
         speed: layer.speed * (0.85 + Math.random() * 0.3),
         phase: Math.random() * TAU,
         haze: layer.haze,
@@ -242,12 +246,18 @@ export function createClouds({ scene, camera, coarse = false }) {
 
   function update(t, dt) {
     const fade = (1 - lastNight * 0.45) * params.opacity;
+    const camX = camera ? camera.position.x : 0;
+    const camZ = camera ? camera.position.z : 0;
     for (const e of entries) {
       const m = e.mesh;
       e.mat.uniforms.uOpacity.value = e.opacity * fade;
-      m.position.x += e.speed * dt;
-      if (m.position.x > 620) m.position.x = -620;
+      e.angle += e.speed * dt / e.radius;
+      const x = Math.sin(e.angle) * e.radius;
+      const z = -Math.cos(e.angle) * e.radius;
+      m.position.x = x;
+      m.position.z = z;
       m.position.y = e.baseY + Math.sin(t * 0.05 + e.phase) * 1.2;
+      m.rotation.y = Math.atan2(camX - x, camZ - z);
     }
   }
 

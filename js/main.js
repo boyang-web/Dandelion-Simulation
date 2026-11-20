@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import { WindField } from './wind.js';
 import { createWorld } from './world.js';
 import { Dandelion } from './dandelion.js';
+import { DandelionField } from './dandelion-field.js';
+import { OrbitRig } from './orbit.js';
+import { SigilUI } from './sigil.js';
 import { Sky } from './sky.js';
 import { createPostPipeline } from './post.js';
 import { createDevConsole } from './dev-console.js';
@@ -87,8 +90,12 @@ rim.position.set(-2.5, 4.5, -6.0);
 scene.add(hemi, keyLight, fill, rim);
 
 const wind = new WindField(camera);
-const world = createWorld(scene);
+const world = createWorld(scene, { camera });
 const dandelion = new Dandelion({ scene, camera, renderer, wind });
+const field = new DandelionField({ scene, camera, renderer, wind });
+const orbit = new OrbitRig(camera, canvas, {
+  target: new THREE.Vector3(0, 2.3, 0.02)
+});
 
 const sky = new Sky({
   wind,
@@ -173,6 +180,63 @@ if (isDev) {
 }
 
 /* ------------------------------------------------------------------ */
+/* operation modes                                                     */
+/* ------------------------------------------------------------------ */
+
+let currentMode = 'wind';
+let hintTimer = 0;
+const hintMouse = document.querySelector('.hint__text--mouse');
+const hintTouch = document.querySelector('.hint__text--touch');
+const MODE_HINTS = {
+  wind: {
+    mouse: '滑过蒲公英 · 扬起一阵风',
+    touch: '手指滑过蒲公英 · 扬起风'
+  },
+  plant: {
+    mouse: '点击草地 · 种下一朵蒲公英',
+    touch: '轻点草地 · 种下一朵蒲公英'
+  },
+  orbit: {
+    mouse: '拖动旋转 · 滚轮缩放视角',
+    touch: '拖动旋转 · 双指缩放'
+  }
+};
+
+function setMode(mode) {
+  currentMode = mode;
+  document.body.classList.toggle('mode-wind', mode === 'wind');
+  document.body.classList.toggle('mode-plant', mode === 'plant');
+  document.body.classList.toggle('mode-orbit', mode === 'orbit');
+
+  wind.setEnabled(mode === 'wind');
+  orbit.setActive(mode === 'orbit');
+
+  if (mode === 'plant') {
+    dandelion.setEnabled(false);
+    field.clear();
+  } else {
+    dandelion.setEnabled(true);
+    field.clear();
+  }
+
+  if (mode !== 'orbit') frameCamera();
+
+  const hint = MODE_HINTS[mode];
+  if (hint) {
+    if (hintMouse) hintMouse.textContent = hint.mouse;
+    if (hintTouch) hintTouch.textContent = hint.touch;
+  }
+
+  // Re-show the instructions for a moment after each mode change.
+  document.body.classList.remove('interacted');
+  clearTimeout(hintTimer);
+  hintTimer = setTimeout(() => document.body.classList.add('interacted'), 6500);
+}
+
+const sigil = new SigilUI({ initial: 'wind', onMode: setMode });
+setMode('wind');
+
+/* ------------------------------------------------------------------ */
 /* ui                                                                  */
 /* ------------------------------------------------------------------ */
 
@@ -195,10 +259,39 @@ function updateUI() {
 }
 
 /* ------------------------------------------------------------------ */
+/* planting (mode 2)                                                   */
+/* ------------------------------------------------------------------ */
+
+const planterRay = new THREE.Raycaster();
+const planterNdc = new THREE.Vector2();
+
+canvas.addEventListener('pointerdown', (e) => {
+  if (currentMode !== 'plant') return;
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+  planterNdc.set(
+    (e.clientX / window.innerWidth) * 2 - 1,
+    -(e.clientY / window.innerHeight) * 2 + 1
+  );
+  planterRay.setFromCamera(planterNdc, camera);
+  const hits = planterRay.intersectObject(world.ground, false);
+  if (!hits.length) return;
+
+  const point = hits[0].point;
+  if (Math.abs(point.x) > 20 || point.z < -30 || point.z > 12) return;
+  field.spawnAt(point);
+});
+
+/* ------------------------------------------------------------------ */
 /* camera drift                                                        */
 /* ------------------------------------------------------------------ */
 
 function updateCamera(t) {
+  if (currentMode === 'orbit') {
+    orbit.apply();
+    return;
+  }
+
   // The ground should feel planted. No pointer-driven camera parallax:
   // only an almost imperceptible breathing drift over tens of seconds.
   const driftX = Math.sin(t * 0.075) * 0.012;
@@ -267,7 +360,7 @@ function updateDebug() {
     `fps ${fps.toFixed(0)}\n` +
     `head ${String(dandelion.headCount).padStart(3)}  flying ${String(airborne.length).padStart(3)}\n` +
     `wind ${wind.strength.toFixed(2)}  energy ${wind.energy.toFixed(2)}  headair ${dandelion.headLocalSpeed.toFixed(2)}\n` +
-    `time ${sky.time.toFixed(2)}  v_avg ${avgSpeed.toFixed(2)}`;
+    `time ${sky.time.toFixed(2)}  mode ${currentMode}  wild ${field.count}  v_avg ${avgSpeed.toFixed(2)}`;
 }
 
 function stepScene(dt) {
@@ -298,6 +391,7 @@ function stepScene(dt) {
   wind.update(dt, elapsed);
   world.update(elapsed, dt, wind);
   dandelion.update(dt, elapsed);
+  field.update(elapsed, dt);
 }
 
 function animate() {
@@ -362,4 +456,8 @@ window.addEventListener('resize', () => {
 });
 
 // A tiny console handle for tinkering.
-window.__dandy = { scene, camera, renderer, wind, world, dandelion, sky, post, fireflyRenderer, fireflyScene, devConsole };
+window.__dandy = {
+  scene, camera, renderer, wind, world, dandelion, field, orbit, sigil,
+  sky, post, fireflyRenderer, fireflyScene, devConsole,
+  get mode() { return currentMode; }
+};

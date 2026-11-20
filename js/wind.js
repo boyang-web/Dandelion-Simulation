@@ -41,6 +41,7 @@ function segmentDistance(px, py, ax, ay, bx, by) {
 export class WindField {
   constructor(camera) {
     this.camera = camera;
+    this.enabled = true;
 
     this.strength = 0;      // 0..1 smoothed speed of the pointer
     this.energy = 0;        // 0..1 slower-decaying speed, drives grass wake
@@ -122,6 +123,7 @@ export class WindField {
 
   _bind() {
     const move = (e) => {
+      if (!this.enabled) return;
       if (e.target && e.target.closest && e.target.closest('[data-no-wind]')) return;
       const isTouch = e.pointerType === 'touch' || e.pointerType === 'pen';
       if (isTouch && !this._down) return;
@@ -178,6 +180,7 @@ export class WindField {
     };
 
     const down = (e) => {
+      if (!this.enabled) return;
       if (e.target && e.target.closest && e.target.closest('[data-no-wind]')) return;
       this._down = true;
       this._hasLast = false;
@@ -208,6 +211,19 @@ export class WindField {
     window.addEventListener('pointercancel', up, { passive: true });
     window.addEventListener('blur', up);
     window.addEventListener('resize', onResize);
+  }
+
+  setEnabled(on) {
+    this.enabled = !!on;
+    if (!this.enabled) {
+      this._down = false;
+      this._hasLast = false;
+      this.strength = 0;
+      this.energy = 0;
+      this.airSpeed = 0;
+      this.grassStrength = 0;
+      this.trail.length = 0;
+    }
   }
 
   _resetTrail(x, y) {

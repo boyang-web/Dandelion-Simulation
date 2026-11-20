@@ -1492,6 +1492,7 @@ function segmentDistance(px, py, ax, ay, bx, by) {
 class WindField {
   constructor(camera) {
     this.camera = camera;
+    this.enabled = true;
 
     this.strength = 0;      // 0..1 smoothed speed of the pointer
     this.energy = 0;        // 0..1 slower-decaying speed, drives grass wake
@@ -1573,6 +1574,7 @@ class WindField {
 
   _bind() {
     const move = (e) => {
+      if (!this.enabled) return;
       if (e.target && e.target.closest && e.target.closest('[data-no-wind]')) return;
       const isTouch = e.pointerType === 'touch' || e.pointerType === 'pen';
       if (isTouch && !this._down) return;
@@ -1629,6 +1631,7 @@ class WindField {
     };
 
     const down = (e) => {
+      if (!this.enabled) return;
       if (e.target && e.target.closest && e.target.closest('[data-no-wind]')) return;
       this._down = true;
       this._hasLast = false;
@@ -1659,6 +1662,19 @@ class WindField {
     window.addEventListener('pointercancel', up, { passive: true });
     window.addEventListener('blur', up);
     window.addEventListener('resize', onResize);
+  }
+
+  setEnabled(on) {
+    this.enabled = !!on;
+    if (!this.enabled) {
+      this._down = false;
+      this._hasLast = false;
+      this.strength = 0;
+      this.energy = 0;
+      this.airSpeed = 0;
+      this.grassStrength = 0;
+      this.trail.length = 0;
+    }
   }
 
   _resetTrail(x, y) {
@@ -2061,7 +2077,7 @@ function createGround() {
 /* a thin treeline sitting on the near ridge                           */
 /* ------------------------------------------------------------------ */
 
-function createTreeline({ z = -50, width = 200, segments = 440 } = {}) {
+function createTreeline({ radius = 50, width = 200, segments = 440 } = {}) {
   const rand = (i) => {
     const s = Math.sin(i * 127.1 + 311.7) * 43758.5453;
     return s - Math.floor(s);
@@ -2089,12 +2105,19 @@ function createTreeline({ z = -50, width = 200, segments = 440 } = {}) {
 
   const positions = [];
   const grads = [];
+  const us = [];
   const indices = [];
   for (let i = 0; i <= segments; i++) {
-    const x = -width / 2 + (i / segments) * width;
-    const y = terrainHeight(x, z) + 0.08 + crown(x);
-    positions.push(x, y, 0, x, -6, 0);
+    const a = (i / segments) * Math.PI * 2;
+    const x = Math.sin(a) * radius;
+    const z = -Math.cos(a) * radius;
+    const profileX = THREE.MathUtils.clamp(
+      radius * Math.tan(a), -width * 0.5, width * 0.5
+    );
+    const y = terrainHeight(x, z) + 0.08 + crown(profileX);
+    positions.push(x, y, z, x, -6, z);
     grads.push(1, 0);
+    us.push(a * radius, a * radius);
   }
   for (let i = 0; i < segments; i++) {
     const a = i * 2;
@@ -2104,6 +2127,7 @@ function createTreeline({ z = -50, width = 200, segments = 440 } = {}) {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.setAttribute('aGrad', new THREE.Float32BufferAttribute(grads, 1));
+  geometry.setAttribute('aU', new THREE.Float32BufferAttribute(us, 1));
   geometry.setIndex(indices);
 
   const material = new THREE.ShaderMaterial({
@@ -2117,11 +2141,12 @@ function createTreeline({ z = -50, width = 200, segments = 440 } = {}) {
     },
     vertexShader: /* glsl */ `
       attribute float aGrad;
+      attribute float aU;
       varying float vGrad;
       varying vec2 vLocal;
       void main() {
         vGrad = aGrad;
-        vLocal = position.xy;
+        vLocal = vec2(aU, position.y);
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
     `,
@@ -2146,11 +2171,12 @@ function createTreeline({ z = -50, width = 200, segments = 440 } = {}) {
         gl_FragColor = vec4(col, 1.0);
         #include <colorspace_fragment>
       }
-    `
+    `,
+    side: THREE.DoubleSide
   });
 
   const mesh = new THREE.Mesh(geometry, material);
-  mesh.position.z = z;
+  mesh.frustumCulled = false;
   mesh.userData.baseHaze = new THREE.Color('#ddd7bf');
   return mesh;
 }
@@ -2159,7 +2185,7 @@ function createTreeline({ z = -50, width = 200, segments = 440 } = {}) {
 /* valley mist between the near and middle ridges                      */
 /* ------------------------------------------------------------------ */
 
-function createValleyMist({ z = -74, width = 460, height = 26 } = {}) {
+function createValleyMist({ radius = 74, height = 26 } = {}) {
   const material = new THREE.ShaderMaterial({
     uniforms: {
       uColor: { value: new THREE.Color('#e7dfc3') },
@@ -2196,9 +2222,11 @@ function createValleyMist({ z = -74, width = 460, height = 26 } = {}) {
     toneMapped: false
   });
 
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material);
-  mesh.position.set(0, 10, z);
+  const geometry = new THREE.CylinderGeometry(radius, radius, height, 200, 1, true);
+  geometry.translate(0, 10, 0);
+  const mesh = new THREE.Mesh(geometry, material);
   mesh.renderOrder = 1;
+  mesh.frustumCulled = false;
   return mesh;
 }
 
@@ -2207,7 +2235,7 @@ function createValleyMist({ z = -74, width = 460, height = 26 } = {}) {
 /* ------------------------------------------------------------------ */
 
 function createHillLayer({
-  z,
+  radius,
   width,
   base,
   amp,
@@ -2216,10 +2244,11 @@ function createHillLayer({
   high,
   haze,
   mist,
-  segments = 190
+  segments = 288
 }) {
   const positions = [];
   const gradients = [];
+  const us = [];
   const indices = [];
 
   const heightAt = (x) => {
@@ -2237,10 +2266,16 @@ function createHillLayer({
   };
 
   for (let i = 0; i <= segments; i++) {
-    const x = -width * 0.5 + (i / segments) * width;
-    const y = heightAt(x);
-    positions.push(x, y, 0, x, -6, 0);
+    const a = (i / segments) * Math.PI * 2;
+    const x = Math.sin(a) * radius;
+    const z = -Math.cos(a) * radius;
+    const profileX = THREE.MathUtils.clamp(
+      radius * Math.tan(a), -width * 0.5, width * 0.5
+    );
+    const y = heightAt(profileX);
+    positions.push(x, y, z, x, -6, z);
     gradients.push(1, 0);
+    us.push(a * radius, a * radius);
   }
 
   for (let i = 0; i < segments; i++) {
@@ -2251,6 +2286,7 @@ function createHillLayer({
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.setAttribute('aGrad', new THREE.Float32BufferAttribute(gradients, 1));
+  geometry.setAttribute('aU', new THREE.Float32BufferAttribute(us, 1));
   geometry.setIndex(indices);
 
   const material = new THREE.ShaderMaterial({
@@ -2265,11 +2301,14 @@ function createHillLayer({
     },
     vertexShader: /* glsl */ `
       attribute float aGrad;
+      attribute float aU;
       varying float vGrad;
       varying vec2 vLocal;
+      varying float vX;
       void main() {
         vGrad = aGrad;
-        vLocal = position.xy;
+        vX = position.x;
+        vLocal = vec2(aU, position.y);
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
     `,
@@ -2283,6 +2322,7 @@ function createHillLayer({
       uniform float uTime;
       varying float vGrad;
       varying vec2 vLocal;
+      varying float vX;
 
       ${NOISE_GLSL}
 
@@ -2293,12 +2333,11 @@ function createHillLayer({
         vec3 col = mix(uLow, uHigh, smoothstep(0.05, 1.0, vGrad));
         col *= 0.965 + (n - 0.5) * 0.08 + (fine - 0.5) * 0.025;
 
-        // Valley haze at the foot of each ridge, thinning toward the crest. The
-      // colour keeps a slow noise so the band never reads as a flat cut-out.
-      float hazeNoise = vnoise(vLocal * vec2(0.55, 1.4) + vec2(uTime * 0.012, 0.0));
-      vec3 hazeCol = uHaze * (0.955 + 0.06 * hazeNoise + 0.025 * vnoise(vLocal * 2.2));
-      float mistMix = (0.34 + 0.66 * (1.0 - vGrad)) * uMist;
-      col = mix(col, hazeCol, clamp(mistMix, 0.0, 0.94));
+        // Valley haze at the foot of each ridge, thinning toward the crest.
+        float hazeNoise = vnoise(vLocal * vec2(0.55, 1.4) + vec2(uTime * 0.012, 0.0));
+        vec3 hazeCol = uHaze * (0.955 + 0.06 * hazeNoise + 0.025 * vnoise(vLocal * 2.2));
+        float mistMix = (0.34 + 0.66 * (1.0 - vGrad)) * uMist;
+        col = mix(col, hazeCol, clamp(mistMix, 0.0, 0.94));
 
         // a quiet rim of sunlight on the crest, warmer on the sun side
         col += uHigh * smoothstep(0.88, 1.0, vGrad) * 0.05;
@@ -2307,20 +2346,20 @@ function createHillLayer({
         // scrub and folds: darker vegetation patches on the lower slopes
         float scrub = smoothstep(0.56, 0.9, vnoise(vLocal * vec2(0.13, 0.4) + 7.0));
         col = mix(col, col * vec3(0.82, 0.87, 0.78), scrub * 0.2 * (1.0 - vGrad * 0.55));
-        col += vec3(0.026, 0.018, 0.0) * smoothstep(-18.0, 32.0, vLocal.x);
+        col += vec3(0.026, 0.018, 0.0) * smoothstep(-18.0, 32.0, vX);
 
-        // Keep the ridges in the same night air as the meadow: the CSS veil
-        // still darkens everything, this only removes the daylight haze.
+        // Keep the ridges in the same night air as the meadow.
         col = mix(col, col * vec3(0.30, 0.37, 0.52), uNight * 0.72);
 
         gl_FragColor = vec4(col, 1.0);
         #include <colorspace_fragment>
       }
-    `
+    `,
+    side: THREE.DoubleSide
   });
 
   const mesh = new THREE.Mesh(geometry, material);
-  mesh.position.z = z;
+  mesh.frustumCulled = false;
   mesh.userData.baseHaze = new THREE.Color(haze);
   return mesh;
 }
@@ -2618,7 +2657,7 @@ function createMotes() {
 function buildHills() {
   return [
     createHillLayer({
-      z: -150,
+      radius: 150,
       width: 760,
       base: 14.0,
       amp: 8.5,
@@ -2630,7 +2669,7 @@ function buildHills() {
       segments: 300
     }),
     createHillLayer({
-      z: -95,
+      radius: 95,
       width: 500,
       base: 8.0,
       amp: 5.0,
@@ -2642,7 +2681,7 @@ function buildHills() {
       segments: 260
     }),
     createHillLayer({
-      z: -55,
+      radius: 55,
       width: 300,
       base: 3.6,
       amp: 3.4,
@@ -2655,7 +2694,7 @@ function buildHills() {
   ];
 }
 
-function createWorld(scene) {
+function createWorld(scene, { camera } = {}) {
   const group = new THREE.Group();
   scene.add(group);
 
@@ -2675,6 +2714,7 @@ function createWorld(scene) {
   // sitting behind the ridges, so the light on them agrees with the ridges.
   const clouds = createClouds({
     scene: group,
+    camera,
     coarse: window.matchMedia('(pointer: coarse)').matches
   });
 
@@ -2809,7 +2849,7 @@ function createWorld(scene) {
 /* used by distant.html to study the horizon without the meadow        */
 /* ------------------------------------------------------------------ */
 
-function createDistantWorld(scene) {
+function createDistantWorld(scene, { camera } = {}) {
   const group = new THREE.Group();
   scene.add(group);
 
@@ -2827,6 +2867,7 @@ function createDistantWorld(scene) {
 
   const clouds = createClouds({
     scene: group,
+    camera,
     coarse: window.matchMedia('(pointer: coarse)').matches
   });
 
@@ -3455,38 +3496,41 @@ function createClouds({ scene, camera, coarse = false }) {
   group.frustumCulled = false;
   if (scene) scene.add(group);
 
-  // Distance bands. The near band sits just above the ridge line, the far
-  // band is huge and soft behind everything.
+  // The clouds live on a ring around the meadow, so orbiting the camera does
+  // not run out of sky. Each plane turns to face the camera every frame.
   const layers = [
     {
-      z: -335,
+      radius: 335,
       y: 30,
       w: 520,
       h: 86,
       haze: 0.46,
       opacity: 0.85,
       speed: 1.6,
-      count: coarse ? 1 : 2
+      count: coarse ? 2 : 3,
+      phase: -0.35
     },
     {
-      z: -252,
+      radius: 252,
       y: 55,
       w: 300,
       h: 92,
       haze: 0.3,
       opacity: 0.95,
       speed: 3.1,
-      count: coarse ? 1 : 2
+      count: coarse ? 2 : 3,
+      phase: 0.55
     },
     {
-      z: -186,
+      radius: 186,
       y: 46,
       w: 210,
       h: 70,
       haze: 0.16,
       opacity: 0.95,
       speed: 5.0,
-      count: coarse ? 1 : 2
+      count: coarse ? 2 : 2,
+      phase: -0.15
     }
   ];
 
@@ -3499,13 +3543,12 @@ function createClouds({ scene, camera, coarse = false }) {
       const width = layer.w * (0.82 + Math.random() * 0.45);
       const height = layer.h * (0.8 + Math.random() * 0.5);
       mesh.scale.set(width, height, 1);
-      mesh.position.set(
-        (i - (layer.count - 1) / 2) * layer.w * 0.45 + (Math.random() - 0.5) * 40,
-        layer.y + (Math.random() - 0.5) * height * 0.35,
-        layer.z + (Math.random() - 0.5) * 14
-      );
-      // Draw with the other far transparent layers, before the seeds and
-      // birds, so a rising seed is never painted over by a distant cloud.
+
+      const angle = layer.phase + (i / layer.count) * TAU + (Math.random() - 0.5) * 0.35;
+      const radius = layer.radius + (Math.random() - 0.5) * 16;
+      const baseY = layer.y + (Math.random() - 0.5) * height * 0.35;
+      mesh.position.set(Math.sin(angle) * radius, baseY, -Math.cos(angle) * radius);
+      mesh.rotation.y = Math.atan2(-mesh.position.x, -mesh.position.z);
       mesh.renderOrder = 0;
       mesh.frustumCulled = false;
       group.add(mesh);
@@ -3513,7 +3556,9 @@ function createClouds({ scene, camera, coarse = false }) {
         mesh,
         mat,
         layer,
-        baseY: mesh.position.y,
+        radius,
+        angle,
+        baseY,
         speed: layer.speed * (0.85 + Math.random() * 0.3),
         phase: Math.random() * TAU,
         haze: layer.haze,
@@ -3552,17 +3597,24 @@ function createClouds({ scene, camera, coarse = false }) {
 
   function update(t, dt) {
     const fade = (1 - lastNight * 0.45) * params.opacity;
+    const camX = camera ? camera.position.x : 0;
+    const camZ = camera ? camera.position.z : 0;
     for (const e of entries) {
       const m = e.mesh;
       e.mat.uniforms.uOpacity.value = e.opacity * fade;
-      m.position.x += e.speed * dt;
-      if (m.position.x > 620) m.position.x = -620;
+      e.angle += e.speed * dt / e.radius;
+      const x = Math.sin(e.angle) * e.radius;
+      const z = -Math.cos(e.angle) * e.radius;
+      m.position.x = x;
+      m.position.z = z;
       m.position.y = e.baseY + Math.sin(t * 0.05 + e.phase) * 1.2;
+      m.rotation.y = Math.atan2(camX - x, camZ - z);
     }
   }
 
   return { group, entries, params, setTime, update };
 }
+
 return { createClouds };
 } };
 
@@ -5646,6 +5698,26 @@ const HEAD_SLOTS = 220;
 const MAX_SEEDS = 700;
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
+// Shared by the hero and every wild dandelion planted in mode 2. Sky writes
+// these once per time change; each plant reads them every frame.
+const dandelionAtmosphere = {
+  fluffTint: new THREE.Color('#fffaf0'),
+  coreTint: new THREE.Color('#fff6df'),
+  coreOpacity: 1,
+  shadowFactor: 1
+};
+
+let seedTexture = null;
+let coreTexture = null;
+function getSeedTexture(renderer) {
+  if (!seedTexture) seedTexture = createSeedTexture(renderer);
+  return seedTexture;
+}
+function getCoreTexture(renderer) {
+  if (!coreTexture) coreTexture = createCoreTexture(renderer);
+  return coreTexture;
+}
+
 const STATE_HEAD = 1;
 const STATE_FLY = 2;
 
@@ -6007,13 +6079,17 @@ function makePlant() {
     side: THREE.DoubleSide
   });
 
+  const bracts = new THREE.InstancedMesh(bractGeometry, bractMaterial, 11);
+  const bractDummy = new THREE.Object3D();
   for (let i = 0; i < 11; i++) {
     const az = (i / 11) * Math.PI * 2 + 0.2;
-    const bract = new THREE.Mesh(bractGeometry, bractMaterial);
-    bract.position.set(Math.sin(az) * 0.05, 2.435, Math.cos(az) * 0.05 + 0.02);
-    bract.rotation.y = az;
-    sway.add(bract);
+    bractDummy.position.set(Math.sin(az) * 0.05, 2.435, Math.cos(az) * 0.05 + 0.02);
+    bractDummy.rotation.set(0, az, 0);
+    bractDummy.updateMatrix();
+    bracts.setMatrixAt(i, bractDummy.matrix);
   }
+  bracts.instanceMatrix.needsUpdate = true;
+  sway.add(bracts);
 
   // soft contact shadow
   const shadowCanvas = document.createElement('canvas');
@@ -6062,7 +6138,12 @@ function makePlant() {
   contact.userData.baseOpacity = 0.62;
   group.add(contact);
 
-  return { group, sway };
+  return {
+    group,
+    sway,
+    fadeMaterials: [stemMaterial, cupMaterial, bractMaterial],
+    shadowMaterials: [longShadow.material, contact.material]
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -6081,22 +6162,58 @@ function smoothstep(min, max, x) {
 /* ------------------------------------------------------------------ */
 
 class Dandelion {
-  constructor({ scene, camera, renderer, wind }) {
+  constructor({
+    scene,
+    camera,
+    renderer,
+    wind,
+    headSlots = HEAD_SLOTS,
+    maxSeeds = MAX_SEEDS,
+    autoRegrow = true,
+    transient = false,
+    position = null,
+    rotationY = 0
+  }) {
     this.scene = scene;
     this.camera = camera;
     this.renderer = renderer;
     this.wind = wind;
+    this.headSlots = headSlots;
+    this.maxSeeds = maxSeeds;
+    this.autoRegrow = autoRegrow;
+    this.transient = transient;
+    this.enabled = true;
+    this.finished = false;
 
     const plant = makePlant();
     this.group = plant.group;
     this.swayGroup = plant.sway;
+    this._fadeMaterials = plant.fadeMaterials;
+    if (position) this.group.position.copy(position);
+    this.group.rotation.y = rotationY;
     scene.add(this.group);
+    this._spawnGrow = transient ? 0.02 : 1;
+    if (transient) {
+      this.swayGroup.scale.set(1, this._spawnGrow, 1);
+      for (const m of this._fadeMaterials) {
+        m.transparent = true;
+        m.opacity = 1;
+      }
+    }
 
     this.shadows = [];
     this.group.traverse((obj) => {
       if (obj.userData.isShadow) this.shadows.push(obj);
     });
     this._timeCoreOpacity = 1;
+    this._shadowFactor = 1;
+    this._stemOpacity = 1;
+    this._stemFading = false;
+    this._stemGone = false;
+    this._life = 0;
+    this._scatterClock = 0;
+    this._scatterInterval = 0.06 + Math.random() * 0.08;
+    this._stemLinger = transient ? 11.5 + Math.random() * 2.5 : Infinity;
 
     // The head is carried by the same pivot as the stem, so its anchor and
     // every seed sitting on it move together as the stem sways.
@@ -6109,7 +6226,12 @@ class Dandelion {
     this.sunDir = new THREE.Vector3(5.5, 8.5, 4.5).normalize();
     this._sunTint = new THREE.Color();
 
-    this.texture = createSeedTexture(renderer);
+    this.group.updateMatrixWorld(true);
+    this.swayGroup.updateMatrixWorld(true);
+    this.headOrigin.copy(HEAD_ORIGIN).applyMatrix4(this.swayGroup.matrixWorld);
+    this.headCenter.copy(HEAD_CENTER).applyMatrix4(this.swayGroup.matrixWorld);
+
+    this.texture = getSeedTexture(renderer);
 
     const geometry = new THREE.PlaneGeometry(0.5, 1);
     const material = new THREE.MeshBasicMaterial({
@@ -6122,19 +6244,19 @@ class Dandelion {
       toneMapped: false
     });
 
-    this.mesh = new THREE.InstancedMesh(geometry, material, MAX_SEEDS);
+    this.mesh = new THREE.InstancedMesh(geometry, material, this.maxSeeds);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 2;
     scene.add(this.mesh);
 
     this._zero = new THREE.Matrix4().makeScale(0, 0, 0);
-    for (let i = 0; i < MAX_SEEDS; i++) this.mesh.setMatrixAt(i, this._zero);
+    for (let i = 0; i < this.maxSeeds; i++) this.mesh.setMatrixAt(i, this._zero);
 
     this.core = new THREE.Mesh(
       new THREE.PlaneGeometry(1, 1),
       new THREE.MeshBasicMaterial({
-        map: createCoreTexture(renderer),
+        map: getCoreTexture(renderer),
         transparent: true,
         depthWrite: false,
         depthTest: false,
@@ -6149,7 +6271,7 @@ class Dandelion {
 
     // A whisper of per-seed warmth so the head isn't a flat white ball.
     const tint = new THREE.Color();
-    for (let i = 0; i < MAX_SEEDS; i++) {
+    for (let i = 0; i < this.maxSeeds; i++) {
       const v = 0.95 + Math.random() * 0.05;
       tint.setRGB(v, v * 0.995, v * 0.955);
       this.mesh.setColorAt(i, tint);
@@ -6161,7 +6283,7 @@ class Dandelion {
 
     this.seeds = [];
     this.freeSeedIndices = [];
-    for (let i = 0; i < MAX_SEEDS; i++) {
+    for (let i = 0; i < this.maxSeeds; i++) {
       this.seeds.push({
         index: i,
         active: false,
@@ -6189,7 +6311,7 @@ class Dandelion {
     this.headCount = 0;
     this.everDetached = false;
 
-    for (let i = 0; i < HEAD_SLOTS; i++) {
+    for (let i = 0; i < this.headSlots; i++) {
       const seed = this._takeSeed();
       if (!seed) break;
       this._attachSeed(seed, i, true);
@@ -6228,8 +6350,8 @@ class Dandelion {
     const cap = 1.94; // a little more than a hemisphere, so the head sits on the stem
     const cosMin = Math.cos(cap);
 
-    for (let i = 0; i < HEAD_SLOTS; i++) {
-      const u = (i + 0.5) / HEAD_SLOTS;
+    for (let i = 0; i < this.headSlots; i++) {
+      const u = (i + 0.5) / this.headSlots;
       const z = 1 - (1 - cosMin) * u;
       const r = Math.sqrt(Math.max(0, 1 - z * z));
       const a = i * GOLDEN_ANGLE;
@@ -6298,7 +6420,7 @@ class Dandelion {
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
   }
 
-  _detachSeed(seed) {
+  _detachSeed(seed, gentle = false) {
     const e = easeOutCubic(seed.grow);
     seed.center
       .copy(this.headOrigin)
@@ -6310,13 +6432,22 @@ class Dandelion {
     seed.flightFrom = seed.scale * e;
     seed.flightScale = 0.90 + Math.random() * 0.18;
 
-    // inherit part of the gust; the rest of the push arrives over the next
-    // few frames while the seed is exposed to the moving air
-    seed.vel.copy(this.headLocalAir).multiplyScalar(0.26 + Math.random() * 0.18);
-    seed.vel.addScaledVector(seed.dir, 0.3 + Math.random() * 0.5);
-    seed.vel.x += (Math.random() - 0.5) * 0.45;
-    seed.vel.y += 0.08 + Math.random() * 0.35;
-    seed.vel.z += (Math.random() - 0.5) * 0.45;
+    if (gentle) {
+      // A planted dandelion lets its seeds go one by one, without a gust:
+      // just enough outward push to leave the head and drift.
+      seed.vel.copy(seed.dir).multiplyScalar(0.10 + Math.random() * 0.10);
+      seed.vel.x += (Math.random() - 0.5) * 0.08;
+      seed.vel.y += 0.02 + Math.random() * 0.06;
+      seed.vel.z += (Math.random() - 0.5) * 0.08;
+    } else {
+      // inherit part of the gust; the rest of the push arrives over the next
+      // few frames while the seed is exposed to the moving air
+      seed.vel.copy(this.headLocalAir).multiplyScalar(0.26 + Math.random() * 0.18);
+      seed.vel.addScaledVector(seed.dir, 0.3 + Math.random() * 0.5);
+      seed.vel.x += (Math.random() - 0.5) * 0.45;
+      seed.vel.y += 0.08 + Math.random() * 0.35;
+      seed.vel.z += (Math.random() - 0.5) * 0.45;
+    }
 
     seed.state = STATE_FLY;
     seed.age = 0;
@@ -6378,13 +6509,112 @@ class Dandelion {
     this.mesh.material.color.copy(fluffTint);
     this.core.material.color.copy(coreTint);
     this._timeCoreOpacity = coreOpacity;
+    this._shadowFactor = shadowFactor;
     for (const shadow of this.shadows) {
-      shadow.material.opacity = shadow.userData.baseOpacity * shadowFactor;
+      shadow.material.opacity =
+        shadow.userData.baseOpacity * shadowFactor * this._stemOpacity;
     }
   }
 
+  setEnabled(on) {
+    this.enabled = !!on;
+    this.group.visible = this.enabled && !this._stemGone;
+    this.mesh.visible = this.enabled;
+    this.core.visible = this.enabled && this.headCount > 0;
+  }
+
+  _clearHeadSeeds() {
+    for (const seed of this.seeds) {
+      if (!seed.active || seed.state !== STATE_HEAD) continue;
+      const slot = this.slots[seed.slot];
+      if (slot) slot.seed = null;
+      this.freeSlots.push(seed.slot);
+      this.headCount--;
+      this._releaseSeed(seed);
+    }
+  }
+
+  _updateTransient(dt) {
+    this._life += dt;
+
+    if (!this._stemFading) {
+      if (this._life > 1.6) {
+        this._scatterClock += dt;
+        if (this._scatterClock >= this._scatterInterval && this.headCount > 0) {
+          this._scatterClock = 0;
+          this._scatterInterval = 0.06 + Math.random() * 0.08;
+          let pick = null;
+          let seen = 0;
+          for (const seed of this.seeds) {
+            if (!seed.active || seed.state !== STATE_HEAD) continue;
+            if (seed.delay > 0 || seed.grow < 0.55) continue;
+            seen++;
+            if (Math.random() < 1 / seen) pick = seed;
+          }
+          if (pick) this._detachSeed(pick, true);
+        }
+      }
+
+      if (this._life > this._stemLinger) {
+        this._stemFading = true;
+      }
+    }
+
+    if (this._stemFading) {
+      this._stemOpacity = Math.max(0, this._stemOpacity - dt / 1.25);
+      for (const m of this._fadeMaterials) m.opacity = this._stemOpacity;
+      for (const shadow of this.shadows) {
+        shadow.material.opacity =
+          shadow.userData.baseOpacity * this._shadowFactor * this._stemOpacity;
+      }
+      if (this._stemOpacity <= 0.001) {
+        this._stemGone = true;
+        this._clearHeadSeeds();
+        this.group.visible = false;
+        this.core.visible = false;
+      }
+    }
+  }
+
+  dispose() {
+    this.finished = true;
+    this.scene.remove(this.group);
+    this.scene.remove(this.mesh);
+    this.scene.remove(this.core);
+    const geometries = new Set();
+    const materials = new Set();
+    this.group.traverse((obj) => {
+      if (obj.geometry) geometries.add(obj.geometry);
+      if (obj.material) materials.add(obj.material);
+    });
+    geometries.add(this.mesh.geometry);
+    materials.add(this.mesh.material);
+    geometries.add(this.core.geometry);
+    materials.add(this.core.material);
+    for (const g of geometries) g.dispose();
+    // Textures are shared by every plant; only the materials are per plant.
+    for (const m of materials) m.dispose();
+  }
+
   update(dt, t) {
+    if (!this.enabled) return;
+
+    const at = dandelionAtmosphere;
+    this.mesh.material.color.copy(at.fluffTint);
+    this.core.material.color.copy(at.coreTint);
+    this._timeCoreOpacity = at.coreOpacity;
+    this._shadowFactor = at.shadowFactor;
+    for (const shadow of this.shadows) {
+      shadow.material.opacity =
+        shadow.userData.baseOpacity * at.shadowFactor * this._stemOpacity;
+    }
+
     const wind = this.wind;
+
+    if (this.transient && this._spawnGrow < 1) {
+      this._spawnGrow = Math.min(1, this._spawnGrow + dt / 0.65);
+      this.swayGroup.scale.set(1, Math.max(0.02, easeOutCubic(this._spawnGrow)), 1);
+    }
 
     // How much air is actually moving over the head right now?
     const headMag = wind.localFactorAtWorld(this.headCenter, this.headLocalAir);
@@ -6426,6 +6656,8 @@ class Dandelion {
     this.headOrigin.copy(HEAD_ORIGIN).applyMatrix4(this.swayGroup.matrixWorld);
     this.headCenter.copy(HEAD_CENTER).applyMatrix4(this.swayGroup.matrixWorld);
 
+    if (this.transient && !this._stemGone) this._updateTransient(dt);
+
     for (let i = 0; i < this.seeds.length; i++) {
       const seed = this.seeds[i];
 
@@ -6453,7 +6685,7 @@ class Dandelion {
           continue;
         }
 
-        const scale = seed.scale * e;
+        const scale = seed.scale * e * this._stemOpacity;
         const half = scale * 0.5;
 
         // the seed is rooted at the receptacle; its fluff points outward
@@ -6554,8 +6786,8 @@ class Dandelion {
       }
     }
 
-    // ---- and quietly grows them back ---------------------------------
-    if (this.freeSlots.length > 0) {
+    // ---- and quietly grows them back (hero only) ----------------------
+    if (this.autoRegrow && this.freeSlots.length > 0) {
       this.regrowTimer -= dt;
       if (this.regrowTimer <= 0) {
         this._regrowOne();
@@ -6567,8 +6799,12 @@ class Dandelion {
 
     this.mesh.instanceMatrix.needsUpdate = true;
 
+    if (this.transient && this._stemGone && !this.seeds.some((s) => s.active)) {
+      this.finished = true;
+    }
+
     // the soft inner fluff fades with the head
-    const fill = this.headCount / HEAD_SLOTS;
+    const fill = this.headCount / this.headSlots;
     if (fill > 0.015) {
       this.core.visible = true;
       this.core.quaternion.copy(this.camera.quaternion);
@@ -6577,17 +6813,435 @@ class Dandelion {
       this.core.position.addScaledVector(this.headLocalAir, 0.006);
       const size = 1.18 + fill * 0.28;
       this.core.scale.setScalar(size);
-      this.core.material.opacity = (0.32 + fill * 0.5) * this._timeCoreOpacity;
+      this.core.material.opacity = (0.32 + fill * 0.5) * this._timeCoreOpacity * this._stemOpacity * Math.min(1, this._spawnGrow * 2);
     } else {
       this.core.visible = false;
     }
   }
 }
-return { Dandelion };
+return { dandelionAtmosphere, Dandelion };
 } };
 
-defs["js/sky.js"] = { deps: ["three"], factory: function (d) {
+defs["js/dandelion-field.js"] = { deps: ["three", "js/dandelion.js"], factory: function (d) {
       const THREE = d["three"].THREE;
+      const { Dandelion } = d["js/dandelion.js"];
+
+
+/* ------------------------------------------------------------------ */
+/*  Wild dandelions                                                    */
+/*                                                                     */
+/*  Mode 2 plants are deliberately not copies of the hero: they have    */
+/*  fewer seeds, never regrow, release their seeds slowly on their own, */
+/*  and let their stem fade after a short life.                         */
+/* ------------------------------------------------------------------ */
+
+const WILD_SLOTS = 120;
+const WILD_SEEDS = 200;
+
+class DandelionField {
+  constructor({ scene, camera, renderer, wind, maxPlants = 8 }) {
+    this.scene = scene;
+    this.camera = camera;
+    this.renderer = renderer;
+    this.wind = wind;
+    this.maxPlants = maxPlants;
+    this.plants = [];
+    this.ripples = [];
+  }
+
+  get count() {
+    return this.plants.length;
+  }
+
+  spawnAt(point) {
+    for (const plant of this.plants) {
+      if (plant.group.position.distanceTo(point) < 0.9) return null;
+    }
+
+    const plant = new Dandelion({
+      scene: this.scene,
+      camera: this.camera,
+      renderer: this.renderer,
+      wind: this.wind,
+      headSlots: WILD_SLOTS,
+      maxSeeds: WILD_SEEDS,
+      autoRegrow: false,
+      transient: true,
+      position: point.clone(),
+      rotationY: Math.random() * Math.PI * 2
+    });
+    this.plants.push(plant);
+    this._spawnRipple(point);
+
+    if (this.plants.length > this.maxPlants) {
+      this._remove(this.plants.shift());
+    }
+    return plant;
+  }
+
+  _spawnRipple(point) {
+    const material = new THREE.MeshBasicMaterial({
+      color: '#f4e4b2',
+      transparent: true,
+      opacity: 0.5,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      toneMapped: false
+    });
+    const mesh = new THREE.Mesh(new THREE.RingGeometry(0.16, 0.24, 40), material);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.copy(point);
+    mesh.position.y += 0.025;
+    mesh.renderOrder = 1;
+    this.scene.add(mesh);
+    this.ripples.push({ mesh, age: 0 });
+  }
+
+  _remove(plant) {
+    const index = this.plants.indexOf(plant);
+    if (index >= 0) this.plants.splice(index, 1);
+    plant.dispose();
+  }
+
+  update(t, dt) {
+    for (let i = this.plants.length - 1; i >= 0; i--) {
+      const plant = this.plants[i];
+      plant.update(dt, t);
+      if (plant.finished) this._remove(plant);
+    }
+
+    for (let i = this.ripples.length - 1; i >= 0; i--) {
+      const ripple = this.ripples[i];
+      ripple.age += dt;
+      const life = Math.min(1, ripple.age / 0.9);
+      ripple.mesh.scale.setScalar(1 + life * 4.5);
+      ripple.mesh.material.opacity = 0.5 * (1 - life);
+      if (life >= 1) {
+        this.scene.remove(ripple.mesh);
+        ripple.mesh.geometry.dispose();
+        ripple.mesh.material.dispose();
+        this.ripples.splice(i, 1);
+      }
+    }
+  }
+
+  clear() {
+    for (const plant of this.plants) plant.dispose();
+    this.plants.length = 0;
+    for (const ripple of this.ripples) {
+      this.scene.remove(ripple.mesh);
+      ripple.mesh.geometry.dispose();
+      ripple.mesh.material.dispose();
+    }
+    this.ripples.length = 0;
+  }
+}
+return { DandelionField };
+} };
+
+defs["js/orbit.js"] = { deps: ["three"], factory: function (d) {
+      const THREE = d["three"].THREE;
+
+/* ------------------------------------------------------------------ */
+/*  Orbit camera rig for mode 3                                        */
+/*                                                                     */
+/*  A small, art-directed orbit: enough yaw/pitch and dolly to feel    */
+/*  the meadow in three dimensions without turning the painted sky     */
+/*  into a spinning backdrop.                                           */
+/* ------------------------------------------------------------------ */
+
+class OrbitRig {
+  constructor(camera, canvas, {
+    target = new THREE.Vector3(0, 2.3, 0.02),
+    minRadius = 6.8,
+    maxRadius = 15.5,
+    minPitch = 0.02,
+    maxPitch = 0.38,
+    maxYaw = 0.85
+  } = {}) {
+    this.camera = camera;
+    this.canvas = canvas;
+    this.target = target.clone();
+    this.minRadius = minRadius;
+    this.maxRadius = maxRadius;
+    this.minPitch = minPitch;
+    this.maxPitch = maxPitch;
+    this.maxYaw = maxYaw;
+
+    this.radius = 9.4;
+    this.yaw = 0;
+    this.pitch = 0.02;
+    this.active = false;
+    this.dragging = false;
+    this.pointers = new Map();
+    this.lastX = 0;
+    this.lastY = 0;
+    this.pinchStart = 0;
+    this.pinchRadius = this.radius;
+    this._bound = false;
+
+    this._bind();
+  }
+
+  _bind() {
+    const down = (e) => {
+      if (!this.active || e.target !== this.canvas) return;
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      e.preventDefault();
+      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      try { this.canvas.setPointerCapture(e.pointerId); } catch (err) { /* noop */ }
+
+      if (this.pointers.size === 1) {
+        this.dragging = true;
+        this.lastX = e.clientX;
+        this.lastY = e.clientY;
+        document.body.classList.add('orbit-dragging');
+      } else if (this.pointers.size === 2) {
+        const pts = [...this.pointers.values()];
+        this.pinchStart = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+        this.pinchRadius = this.radius;
+      }
+    };
+
+    const move = (e) => {
+      if (!this.active || !this.pointers.has(e.pointerId)) return;
+      e.preventDefault();
+      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (this.pointers.size >= 2) {
+        const pts = [...this.pointers.values()];
+        const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+        if (this.pinchStart > 1 && dist > 1) {
+          this.radius = THREE.MathUtils.clamp(
+            this.pinchRadius * (this.pinchStart / dist),
+            this.minRadius,
+            this.maxRadius
+          );
+          this._apply();
+        }
+        return;
+      }
+
+      const dx = e.clientX - this.lastX;
+      const dy = e.clientY - this.lastY;
+      this.lastX = e.clientX;
+      this.lastY = e.clientY;
+      this.yaw = THREE.MathUtils.clamp(this.yaw - dx * 0.0032, -this.maxYaw, this.maxYaw);
+      this.pitch = THREE.MathUtils.clamp(this.pitch - dy * 0.0030, this.minPitch, this.maxPitch);
+      this._apply();
+    };
+
+    const up = (e) => {
+      if (!this.pointers.has(e.pointerId)) return;
+      this.pointers.delete(e.pointerId);
+      try { this.canvas.releasePointerCapture(e.pointerId); } catch (err) { /* noop */ }
+      if (this.pointers.size === 0) {
+        this.dragging = false;
+        document.body.classList.remove('orbit-dragging');
+      } else if (this.pointers.size === 1) {
+        const p = [...this.pointers.values()][0];
+        this.lastX = p.x;
+        this.lastY = p.y;
+      }
+    };
+
+    const wheel = (e) => {
+      if (!this.active) return;
+      e.preventDefault();
+      this.radius = THREE.MathUtils.clamp(
+        this.radius * Math.exp(e.deltaY * 0.0012),
+        this.minRadius,
+        this.maxRadius
+      );
+      this._apply();
+    };
+
+    this.canvas.addEventListener('pointerdown', down);
+    this.canvas.addEventListener('pointermove', move);
+    this.canvas.addEventListener('pointerup', up);
+    this.canvas.addEventListener('pointercancel', up);
+    this.canvas.addEventListener('lostpointercapture', up);
+    this.canvas.addEventListener('wheel', wheel, { passive: false });
+    this._bound = true;
+  }
+
+  setActive(on) {
+    this.active = !!on;
+    if (this.active) {
+      this.syncFromCamera();
+      this._apply();
+    } else {
+      this.pointers.clear();
+      this.dragging = false;
+      document.body.classList.remove('orbit-dragging');
+    }
+  }
+
+  syncFromCamera() {
+    const dx = this.camera.position.x - this.target.x;
+    const dy = this.camera.position.y - this.target.y;
+    const dz = this.camera.position.z - this.target.z;
+    this.radius = THREE.MathUtils.clamp(Math.hypot(dx, dy, dz), this.minRadius, this.maxRadius);
+    this.yaw = THREE.MathUtils.clamp(Math.atan2(dx, dz), -this.maxYaw, this.maxYaw);
+    this.pitch = THREE.MathUtils.clamp(
+      Math.asin(THREE.MathUtils.clamp(dy / this.radius, -1, 1)),
+      this.minPitch,
+      this.maxPitch
+    );
+  }
+
+  apply() {
+    this._apply();
+  }
+
+  _apply() {
+    const cp = Math.cos(this.pitch);
+    this.camera.position.set(
+      this.target.x + this.radius * Math.sin(this.yaw) * cp,
+      this.target.y + this.radius * Math.sin(this.pitch),
+      this.target.z + this.radius * Math.cos(this.yaw) * cp
+    );
+    this.camera.lookAt(this.target);
+    this.camera.updateMatrixWorld();
+  }
+}
+return { OrbitRig };
+} };
+
+defs["js/sigil.js"] = { deps: [], factory: function (d) {
+
+/* ------------------------------------------------------------------ */
+/*  Sky sigil / mode switcher                                          */
+/*                                                                     */
+/*  Long-press the glowing mark in the sky to open the three-mode       */
+/*  selector, then tap a mode. A short press intentionally does         */
+/*  nothing so it cannot fire while someone is just looking around.     */
+/* ------------------------------------------------------------------ */
+
+const LABELS = { wind: '风', plant: '种植', orbit: '视角' };
+
+class SigilUI {
+  constructor({ onMode, initial = 'wind' } = {}) {
+    this.onMode = onMode;
+    this.mode = initial;
+    this.longPressTimer = 0;
+    this.openedAt = 0;
+    this.startX = 0;
+    this.startY = 0;
+
+    this.wrap = document.getElementById('sigilWrap');
+    this.sigil = document.getElementById('sigil');
+    this.menu = document.getElementById('modeMenu');
+    this.label = document.getElementById('sigilMode');
+    this.buttons = [...document.querySelectorAll('[data-mode]')];
+
+    this._bind();
+    this.set(initial, { silent: true });
+  }
+
+  _bind() {
+    this.sigil.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('.mode-menu')) return;
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      this.startX = e.clientX;
+      this.startY = e.clientY;
+      this.clearTimer();
+      this.longPressTimer = setTimeout(() => {
+        this.longPressTimer = 0;
+        this.openedAt = performance.now();
+        this.openMenu();
+      }, 600);
+    });
+
+    const cancel = () => this.clearTimer();
+    this.sigil.addEventListener('pointerup', cancel);
+    this.sigil.addEventListener('pointercancel', cancel);
+    this.sigil.addEventListener('pointerleave', cancel);
+    this.sigil.addEventListener('pointermove', (e) => {
+      if (!this.longPressTimer) return;
+      if (Math.hypot(e.clientX - this.startX, e.clientY - this.startY) > 12) {
+        cancel();
+      }
+    });
+
+    this.sigil.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (!this.menu.hidden) return;
+      if (performance.now() - this.openedAt < 500) return;
+      // A short click is a quiet hint, not a mode change.
+      this.sigil.classList.remove('is-pulse');
+      void this.sigil.offsetWidth;
+      this.sigil.classList.add('is-pulse');
+    });
+
+    for (const button of this.buttons) {
+      button.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.set(button.dataset.mode);
+        this.closeMenu();
+      });
+    }
+
+    document.addEventListener('pointerdown', (e) => {
+      if (this.menu.hidden) return;
+      if (this.wrap.contains(e.target)) return;
+      this.closeMenu();
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') this.closeMenu();
+    });
+
+    this.sigil.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        this.openMenu();
+        const active = this.buttons.find((b) => b.dataset.mode === this.mode);
+        (active || this.buttons[0]).focus();
+      }
+    });
+  }
+
+  clearTimer() {
+    if (this.longPressTimer) {
+      clearTimeout(this.longPressTimer);
+      this.longPressTimer = 0;
+    }
+  }
+
+  openMenu() {
+    this.menu.hidden = false;
+    this.wrap.classList.add('is-open');
+    this.sigil.setAttribute('aria-expanded', 'true');
+    this.sigil.classList.add('is-lit');
+  }
+
+  closeMenu() {
+    this.menu.hidden = true;
+    this.wrap.classList.remove('is-open');
+    this.sigil.setAttribute('aria-expanded', 'false');
+    this.sigil.classList.remove('is-lit');
+  }
+
+  set(mode, { silent = false } = {}) {
+    if (!LABELS[mode]) return;
+    this.mode = mode;
+    if (this.label) this.label.textContent = LABELS[mode];
+    for (const button of this.buttons) {
+      const active = button.dataset.mode === mode;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    }
+    if (!silent) this.onMode?.(mode);
+  }
+}
+return { SigilUI };
+} };
+
+defs["js/sky.js"] = { deps: ["three", "js/dandelion.js"], factory: function (d) {
+      const THREE = d["three"].THREE;
+      const { dandelionAtmosphere } = d["js/dandelion.js"];
+
 
 /* ------------------------------------------------------------------ */
 /* Sky & time of day                                                   */
@@ -7220,12 +7874,17 @@ class Sky {
     mixLight(PALETTE.coreNight, PALETTE.coreGolden, PALETTE.coreDay, { golden, day }, scratch.core);
     mixLight(PALETTE.moteNight, PALETTE.moteGolden, PALETTE.moteDay, { golden, day }, scratch.mote);
 
-    this.dandelion.setTime({
+    const dandelionTime = {
       fluffTint: scratch.fluff,
       coreTint: scratch.core,
       coreOpacity: 0.80 + 0.20 * day,
       shadowFactor: 0.38 + 0.62 * day
-    });
+    };
+    this.dandelion.setTime(dandelionTime);
+    dandelionAtmosphere.fluffTint.copy(dandelionTime.fluffTint);
+    dandelionAtmosphere.coreTint.copy(dandelionTime.coreTint);
+    dandelionAtmosphere.coreOpacity = dandelionTime.coreOpacity;
+    dandelionAtmosphere.shadowFactor = dandelionTime.shadowFactor;
 
     this.world.setTime({
       sunColor: scratch.key,
@@ -8051,7 +8710,7 @@ const rim = new THREE.DirectionalLight(0xffe4bd, 0.55);
 rim.position.set(-2.5, 4.5, -6.0);
 scene.add(hemi, keyLight, fill, rim);
 
-const world = createDistantWorld(scene);
+const world = createDistantWorld(scene, { camera });
 
 const windStub = { params: {}, cancelGesture() {} };
 const dandelionStub = { setTime() {} };
@@ -8172,14 +8831,20 @@ window.__dandy = { scene, camera, renderer, world, sky, post, devConsole, mode: 
 return {};
 } };
 
-defs["js/main.js"] = { deps: ["three", "js/wind.js", "js/world.js", "js/dandelion.js", "js/sky.js", "js/post.js", "js/dev-console.js"], factory: function (d) {
+defs["js/main.js"] = { deps: ["three", "js/wind.js", "js/world.js", "js/dandelion.js", "js/dandelion-field.js", "js/orbit.js", "js/sigil.js", "js/sky.js", "js/post.js", "js/dev-console.js"], factory: function (d) {
       const THREE = d["three"].THREE;
       const { WindField } = d["js/wind.js"];
       const { createWorld } = d["js/world.js"];
       const { Dandelion } = d["js/dandelion.js"];
+      const { DandelionField } = d["js/dandelion-field.js"];
+      const { OrbitRig } = d["js/orbit.js"];
+      const { SigilUI } = d["js/sigil.js"];
       const { Sky } = d["js/sky.js"];
       const { createPostPipeline } = d["js/post.js"];
       const { createDevConsole } = d["js/dev-console.js"];
+
+
+
 
 
 
@@ -8268,8 +8933,12 @@ rim.position.set(-2.5, 4.5, -6.0);
 scene.add(hemi, keyLight, fill, rim);
 
 const wind = new WindField(camera);
-const world = createWorld(scene);
+const world = createWorld(scene, { camera });
 const dandelion = new Dandelion({ scene, camera, renderer, wind });
+const field = new DandelionField({ scene, camera, renderer, wind });
+const orbit = new OrbitRig(camera, canvas, {
+  target: new THREE.Vector3(0, 2.3, 0.02)
+});
 
 const sky = new Sky({
   wind,
@@ -8354,6 +9023,63 @@ if (isDev) {
 }
 
 /* ------------------------------------------------------------------ */
+/* operation modes                                                     */
+/* ------------------------------------------------------------------ */
+
+let currentMode = 'wind';
+let hintTimer = 0;
+const hintMouse = document.querySelector('.hint__text--mouse');
+const hintTouch = document.querySelector('.hint__text--touch');
+const MODE_HINTS = {
+  wind: {
+    mouse: '滑过蒲公英 · 扬起一阵风',
+    touch: '手指滑过蒲公英 · 扬起风'
+  },
+  plant: {
+    mouse: '点击草地 · 种下一朵蒲公英',
+    touch: '轻点草地 · 种下一朵蒲公英'
+  },
+  orbit: {
+    mouse: '拖动旋转 · 滚轮缩放视角',
+    touch: '拖动旋转 · 双指缩放'
+  }
+};
+
+function setMode(mode) {
+  currentMode = mode;
+  document.body.classList.toggle('mode-wind', mode === 'wind');
+  document.body.classList.toggle('mode-plant', mode === 'plant');
+  document.body.classList.toggle('mode-orbit', mode === 'orbit');
+
+  wind.setEnabled(mode === 'wind');
+  orbit.setActive(mode === 'orbit');
+
+  if (mode === 'plant') {
+    dandelion.setEnabled(false);
+    field.clear();
+  } else {
+    dandelion.setEnabled(true);
+    field.clear();
+  }
+
+  if (mode !== 'orbit') frameCamera();
+
+  const hint = MODE_HINTS[mode];
+  if (hint) {
+    if (hintMouse) hintMouse.textContent = hint.mouse;
+    if (hintTouch) hintTouch.textContent = hint.touch;
+  }
+
+  // Re-show the instructions for a moment after each mode change.
+  document.body.classList.remove('interacted');
+  clearTimeout(hintTimer);
+  hintTimer = setTimeout(() => document.body.classList.add('interacted'), 6500);
+}
+
+const sigil = new SigilUI({ initial: 'wind', onMode: setMode });
+setMode('wind');
+
+/* ------------------------------------------------------------------ */
 /* ui                                                                  */
 /* ------------------------------------------------------------------ */
 
@@ -8376,10 +9102,39 @@ function updateUI() {
 }
 
 /* ------------------------------------------------------------------ */
+/* planting (mode 2)                                                   */
+/* ------------------------------------------------------------------ */
+
+const planterRay = new THREE.Raycaster();
+const planterNdc = new THREE.Vector2();
+
+canvas.addEventListener('pointerdown', (e) => {
+  if (currentMode !== 'plant') return;
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+  planterNdc.set(
+    (e.clientX / window.innerWidth) * 2 - 1,
+    -(e.clientY / window.innerHeight) * 2 + 1
+  );
+  planterRay.setFromCamera(planterNdc, camera);
+  const hits = planterRay.intersectObject(world.ground, false);
+  if (!hits.length) return;
+
+  const point = hits[0].point;
+  if (Math.abs(point.x) > 20 || point.z < -30 || point.z > 12) return;
+  field.spawnAt(point);
+});
+
+/* ------------------------------------------------------------------ */
 /* camera drift                                                        */
 /* ------------------------------------------------------------------ */
 
 function updateCamera(t) {
+  if (currentMode === 'orbit') {
+    orbit.apply();
+    return;
+  }
+
   // The ground should feel planted. No pointer-driven camera parallax:
   // only an almost imperceptible breathing drift over tens of seconds.
   const driftX = Math.sin(t * 0.075) * 0.012;
@@ -8448,7 +9203,7 @@ function updateDebug() {
     `fps ${fps.toFixed(0)}\n` +
     `head ${String(dandelion.headCount).padStart(3)}  flying ${String(airborne.length).padStart(3)}\n` +
     `wind ${wind.strength.toFixed(2)}  energy ${wind.energy.toFixed(2)}  headair ${dandelion.headLocalSpeed.toFixed(2)}\n` +
-    `time ${sky.time.toFixed(2)}  v_avg ${avgSpeed.toFixed(2)}`;
+    `time ${sky.time.toFixed(2)}  mode ${currentMode}  wild ${field.count}  v_avg ${avgSpeed.toFixed(2)}`;
 }
 
 function stepScene(dt) {
@@ -8479,6 +9234,7 @@ function stepScene(dt) {
   wind.update(dt, elapsed);
   world.update(elapsed, dt, wind);
   dandelion.update(dt, elapsed);
+  field.update(elapsed, dt);
 }
 
 function animate() {
@@ -8543,7 +9299,11 @@ window.addEventListener('resize', () => {
 });
 
 // A tiny console handle for tinkering.
-window.__dandy = { scene, camera, renderer, wind, world, dandelion, sky, post, fireflyRenderer, fireflyScene, devConsole };
+window.__dandy = {
+  scene, camera, renderer, wind, world, dandelion, field, orbit, sigil,
+  sky, post, fireflyRenderer, fireflyScene, devConsole,
+  get mode() { return currentMode; }
+};
 return {};
 } };
 

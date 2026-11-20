@@ -65,7 +65,7 @@ const rim = new THREE.DirectionalLight(0xffe4bd, 0.55);
 rim.position.set(-2.5, 4.5, -6.0);
 scene.add(hemi, keyLight, fill, rim);
 
-const world = createDistantWorld(scene);
+const world = createDistantWorld(scene, { camera });
 
 const windStub = { params: {}, cancelGesture() {} };
 const dandelionStub = { setTime() {} };

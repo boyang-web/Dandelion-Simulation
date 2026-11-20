@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { dandelionAtmosphere } from './dandelion.js';
 
 /* ------------------------------------------------------------------ */
 /* Sky & time of day                                                   */
@@ -631,12 +632,17 @@ export class Sky {
     mixLight(PALETTE.coreNight, PALETTE.coreGolden, PALETTE.coreDay, { golden, day }, scratch.core);
     mixLight(PALETTE.moteNight, PALETTE.moteGolden, PALETTE.moteDay, { golden, day }, scratch.mote);
 
-    this.dandelion.setTime({
+    const dandelionTime = {
       fluffTint: scratch.fluff,
       coreTint: scratch.core,
       coreOpacity: 0.80 + 0.20 * day,
       shadowFactor: 0.38 + 0.62 * day
-    });
+    };
+    this.dandelion.setTime(dandelionTime);
+    dandelionAtmosphere.fluffTint.copy(dandelionTime.fluffTint);
+    dandelionAtmosphere.coreTint.copy(dandelionTime.coreTint);
+    dandelionAtmosphere.coreOpacity = dandelionTime.coreOpacity;
+    dandelionAtmosphere.shadowFactor = dandelionTime.shadowFactor;
 
     this.world.setTime({
       sunColor: scratch.key,

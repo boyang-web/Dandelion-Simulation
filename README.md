@@ -1,15 +1,19 @@
 # 等风来 · Dandelion
 
 一朵由代码生成的蒲公英，长在一片安静的草原上。  
-滑动鼠标或手指，让风从蒲公英上经过——种子飞起、飘远，然后花头会慢慢把种子长回来。
+天空正中有一枚发光的神圣纹样，长按它可以切换三种操作模式：操控风、在草地上种植蒲公英、自由旋转缩放视角。
 
-整个场景没有外部贴图或模型：蒲公英、种子绒、草地、山脊、花粉都由代码绘制。
+整个场景没有外部贴图或模型：蒲公英、种子绒、草地、山脊、云、花粉都由代码绘制。
 
 ---
 
 ## 运行
 
-需要通过 HTTP 打开（ES Modules 不能直接用 `file://` 运行）：
+- **用户入口**：`index.html`
+- **开发者入口**：`dev.html`（跳到 `index.html?dev=1`，带控制台）
+- **预览页**：`labs/distant.html`、`labs/landmarks.html`、`labs/vegetation.html`
+
+可以直接双击 `index.html`（`file://` 使用经典包），也可以用本地服务器：
 
 ```bash
 cd dandelion
@@ -24,6 +28,10 @@ Three.js 已放在 `vendor/` 中，离线也能运行。
 
 ## 怎么玩
 
+- **天空纹样**：长按约 0.6 秒打开模式菜单，点选「操控风 / 种植 / 视角」。
+- **模式 1 · 操控风**：默认模式；滑过蒲公英制造局部风，种子飞起后会自己慢慢长回来。
+- **模式 2 · 种植**：点击草地，在落点长出一朵野生蒲公英；它的种子会一颗颗慢慢散开，不会自动补足，茎停留约 12–14 秒后淡出，整株约 35–40 秒后消失。
+- **模式 3 · 视角**：拖动旋转、滚轮/双指缩放；远处的山脊、树线和云现在是一圈 360° 的 3D 背景，转身不会看到“布景边缘”。
 - **电脑**：不必按住鼠标，直接滑过蒲公英即可。滑动越快，风越大。
 - **手机**：手指按住并滑过蒲公英。
 - 风只作用在**光标（手指）经过的区域**，不会同时吹动整片草地。鼠标就是那个"在草地里掠过的物体"。
@@ -109,7 +117,7 @@ vel += (localAir - vel) * (1 - exp(-response * dt));
 - 天光、多层软云、太阳/月亮的柔焦光晕来自 CSS，WebGL 画布使用透明背景叠加；
 - 光线后期见 D 组：泛光、空气散射、草叶透光、根部 AO 与同色雾霭。
 
-### B · 单株资产库（`vegetation.html`）
+### B · 单株资产库（`labs/vegetation.html`）
 
 这是正式草地装配前的资产阶段，主场景本身还没有换草：
 
@@ -118,7 +126,7 @@ vel += (localAir - vel) * (1 - exp(-response * dt));
 - 每种 3 个种子变体；`js/vegetation.js` 中每个资产都是 **1 个合并 `BufferGeometry`**，带 `position / color / normal / aBend / aPhase / aFlutter`，下一步可以直接喂给 `InstancedMesh`；
 - `createVegetationMaterial()` 用 `MeshStandardMaterial + onBeforeCompile` 做固定根部的风弯曲，保留顶点色、主光和阴影；
 - 资产页可以单独查看每一株、切换 3 个变体、重新播种、调风、拖动旋转与滚轮缩放；
-- 预览：`http://localhost:8124/vegetation.html`（也可以直接打开 `vegetation.html`）。
+- 预览：`http://localhost:8124/labs/vegetation.html`。
 
 ### C · 山坡草地装配（主场景）
 
@@ -163,7 +171,7 @@ vel += (localAir - vel) * (1 - exp(-response * dt));
 - **山**：三层山脊重新抬到地形天际线之上（之前它们其实被抬升的地形挡住了），新增一层更远的山；山脊线加了高频起伏，山腰有灌木/褶皱色斑，山脊受光会随黄昏变暖；
 - 开发面板的“召唤鸟群”可以立刻放一群鸟，不用等。
 
-### 远景预览（`distant.html`）
+### 远景预览（`labs/distant.html`）
 
 专门用来打磨远景的独立页面，不加载蒲公英、草地、花和萤火虫：
 
@@ -182,7 +190,7 @@ vel += (localAir - vel) * (1 - exp(-response * dt));
 
 梧桐、风车与溪流的资产和摆放代码已经完成，但主场景和远景预览目前**不加载**它们，作为 V2 素材保留：
 
-- `landmarks.html` + `js/landmarks-preview.js`：单独的资产预览页；
+- `labs/landmarks.html` + `js/landmarks-preview.js`：单独的资产预览页；
 - `js/tree-assets.js`：梧桐资产；
 - `js/windmill-asset.js`：风车资产；
 - `js/landmarks.js`：溪流、风车、树的场景摆放、风与落叶，接入时再启用。
@@ -234,19 +242,11 @@ DEV 按钮、不会读取浏览器里保存的调参值；开发者用 `dev.html
 python3 tools/build-classic-bundle.py
 ```
 
-### 单文件发布
-
-```bash
-python3 tools/build-single-file.py
-```
-
-生成 `dist/dandelion.html`，约 **1.5 MB**，CSS / three.js / 业务代码全部内联，
-无外部请求，双击即可打开；用户启动同样不带控制台。
-
 ### GitHub Pages
 
-仓库是纯静态页面，直接 Deploy from a branch（`main` / root）即可；根目录已放
-`.nojekyll`。用户入口是仓库根路径，开发者入口是 `dev.html`。
+仓库已带 `.github/workflows/deploy-pages.yml`；Settings → Pages → Source 选
+**GitHub Actions**，push 到 `main` 会自动发布。用户入口是仓库根路径，开发者入口是
+`dev.html`。
 
 - 体积、缓存、手机端性能估算和发布检查清单见
   [`docs/PUBLISHING.md`](./docs/PUBLISHING.md)；
@@ -260,20 +260,19 @@ python3 tools/build-single-file.py
 dandelion/
 ├── index.html          # 生产入口：无控制台
 ├── dev.html            # 开发者入口：跳转到 ?dev=1
-├── distant.html        # 远景预览：天空、云、山脊、鸟群（无近景植被）
-├── landmarks.html      # V2 资产预览：梧桐 / 风车 / 溪流
-├── vegetation.html     # B：单株资产陈列页
 ├── .nojekyll           # GitHub Pages：跳过 Jekyll
+├── labs/
+│   ├── distant.html    # 远景预览：天空、云、山脊、鸟群
+│   ├── landmarks.html  # V2 资产预览：梧桐 / 风车 / 溪流
+│   └── vegetation.html # B：单株资产陈列页
 ├── css/
 │   ├── style.css       # 天光、云、时间叠色、天体控件、排版、颗粒与暗角
 │   └── vegetation.css  # B：资产陈列页
 ├── docs/
 │   ├── DEFAULTS.md     # 生产默认值
-│   └── PUBLISHING.md   # 单文件 / GitHub Pages / 手机性能估算
+│   └── PUBLISHING.md   # GitHub Pages / 体积 / 手机性能估算
 ├── tools/
-│   ├── build-classic-bundle.py # 生成经典包
-│   └── build-single-file.py    # 生成 dist/dandelion.html
-├── dist/dandelion.html # 单文件发布产物（自动生成，约 1.5 MB）
+│   └── build-classic-bundle.py # 生成经典包
 ├── js/
 │   ├── main.js         # 主场景渲染器、相机、主循环、可选演示模式
 │   ├── sky.js          # 日月弧线、柔焦光体、云层时间与灯光调色
@@ -287,20 +286,22 @@ dandelion/
 │   ├── landmarks.js    # V2 地标：溪流、风车、树、落叶
 │   ├── fireflies.js    # 夜晚萤火虫：渐入、局部风响应、自然漂移
 │   ├── dev-console.js  # 开发控制台：交互参数实时调节、持久化与记录
-│   ├── bundle.js       # 经典脚本包（file:// / 单文件发布时使用，自动生成）
+│   ├── bundle.js       # 经典脚本包（file:// 使用，自动生成）
 │   ├── bundle-distant.js # 远景预览的经典脚本包（自动生成）
 │   ├── bundle-landmarks.js # 资产预览的经典脚本包（自动生成）
 │   ├── distant.js      # 远景预览入口：薄世界 + 天空 + 后处理
 │   ├── wind.js         # 局部风场：路径 trail、采样、草丛参数
 │   ├── dandelion.js    # 茎/花托/种子贴图、InstancedMesh、物理与复生
-│   └── world.js        # 山脊、花粉、世界装配（地形与草地来自 meadow.js）
+│   ├── dandelion-field.js # 模式 2：野生蒲公英的种植与生命周期
+│   ├── orbit.js        # 模式 3：受限轨道相机与缩放
+│   ├── sigil.js        # 天空纹样、长按菜单与模式切换
+│   └── world.js        # 360° 山脊/树线/雾/云、花粉、世界装配
 └── vendor/
     ├── three.module.js # 开发用 ES module
     └── three.global.js # 经典全局版本（自动生成）
 ```
 
-`tools/build-classic-bundle.py` 生成三个经典包和 `three.global.js`；
-`tools/build-single-file.py` 在此基础上烘焙单文件发布产物。
+`tools/build-classic-bundle.py` 生成三个经典包和 `three.global.js`。
 
 ---
 
