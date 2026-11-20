@@ -632,7 +632,7 @@ export class Dandelion {
       if (!seed) break;
       this._attachSeed(seed, i, true);
       seed.delay = 0.2 + Math.random() * 1.15;
-      seed.growDur = 0.7 + Math.random() * 0.45;
+      seed.growDur = 1.0 + Math.random() * 0.5;
     }
 
     // scratch vectors
@@ -652,8 +652,8 @@ export class Dandelion {
       seedResponseGain: 1.55,
       detachPower: 2.6,
       detachExp: 1.35,
-      regrowMin: 0.16,
-      regrowVar: 0.12,
+      regrowMin: 0.30,
+      regrowVar: 0.16,
       seedLifeMin: 11,
       seedLifeVar: 9,
       quiverBase: 0.011,
@@ -720,7 +720,7 @@ export class Dandelion {
     seed.scale = slot.scale;
     seed.grow = 0;
     seed.delay = intro ? seed.delay : 0;
-    seed.growDur = intro ? seed.growDur : 1.05 + Math.random() * 0.55;
+    seed.growDur = intro ? seed.growDur : 1.6 + Math.random() * 0.7;
     seed.age = 0;
     seed.life = 0;
     seed.vel.set(0, 0, 0);
@@ -854,7 +854,7 @@ export class Dandelion {
     this._life += dt;
 
     if (!this._stemFading) {
-      if (this._life > 1.6) {
+      if (this._life > 2.2) {
         this._scatterClock += dt;
         if (this._scatterClock >= this._scatterInterval && this.headCount > 0) {
           this._scatterClock = 0;

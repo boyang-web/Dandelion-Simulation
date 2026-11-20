@@ -210,16 +210,9 @@ function setMode(mode) {
 
   wind.setEnabled(mode === 'wind');
   orbit.setActive(mode === 'orbit');
-
-  if (mode === 'plant') {
-    dandelion.setEnabled(false);
-    field.clear();
-  } else {
-    dandelion.setEnabled(true);
-    field.clear();
-  }
-
-  if (mode !== 'orbit') frameCamera();
+  // Modes share state: planted dandelions stay in the meadow when the user
+  // switches tools, and the orbit pose is kept when they go back to wind.
+  dandelion.setEnabled(mode !== 'plant');
 
   const hint = MODE_HINTS[mode];
   if (hint) {
@@ -287,7 +280,7 @@ canvas.addEventListener('pointerdown', (e) => {
 /* ------------------------------------------------------------------ */
 
 function updateCamera(t) {
-  if (currentMode === 'orbit') {
+  if (currentMode === 'orbit' || orbit.hasView) {
     orbit.apply();
     return;
   }
@@ -451,6 +444,7 @@ window.addEventListener('resize', () => {
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
   frameCamera();
+  if (currentMode === 'orbit' || orbit.hasView) orbit.apply();
   sky.resize();
   post.resize();
 });

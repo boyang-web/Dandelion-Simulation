@@ -6316,7 +6316,7 @@ class Dandelion {
       if (!seed) break;
       this._attachSeed(seed, i, true);
       seed.delay = 0.2 + Math.random() * 1.15;
-      seed.growDur = 0.7 + Math.random() * 0.45;
+      seed.growDur = 1.0 + Math.random() * 0.5;
     }
 
     // scratch vectors
@@ -6336,8 +6336,8 @@ class Dandelion {
       seedResponseGain: 1.55,
       detachPower: 2.6,
       detachExp: 1.35,
-      regrowMin: 0.16,
-      regrowVar: 0.12,
+      regrowMin: 0.30,
+      regrowVar: 0.16,
       seedLifeMin: 11,
       seedLifeVar: 9,
       quiverBase: 0.011,
@@ -6404,7 +6404,7 @@ class Dandelion {
     seed.scale = slot.scale;
     seed.grow = 0;
     seed.delay = intro ? seed.delay : 0;
-    seed.growDur = intro ? seed.growDur : 1.05 + Math.random() * 0.55;
+    seed.growDur = intro ? seed.growDur : 1.6 + Math.random() * 0.7;
     seed.age = 0;
     seed.life = 0;
     seed.vel.set(0, 0, 0);
@@ -6538,7 +6538,7 @@ class Dandelion {
     this._life += dt;
 
     if (!this._stemFading) {
-      if (this._life > 1.6) {
+      if (this._life > 2.2) {
         this._scatterClock += dt;
         if (this._scatterClock >= this._scatterInterval && this.headCount > 0) {
           this._scatterClock = 0;
@@ -6973,6 +6973,7 @@ class OrbitRig {
     this.pitch = 0.02;
     this.active = false;
     this.dragging = false;
+    this.hasView = false;
     this.pointers = new Map();
     this.lastX = 0;
     this.lastY = 0;
@@ -7017,6 +7018,7 @@ class OrbitRig {
             this.minRadius,
             this.maxRadius
           );
+          this.hasView = true;
           this._apply();
         }
         return;
@@ -7028,6 +7030,7 @@ class OrbitRig {
       this.lastY = e.clientY;
       this.yaw = THREE.MathUtils.clamp(this.yaw - dx * 0.0032, -this.maxYaw, this.maxYaw);
       this.pitch = THREE.MathUtils.clamp(this.pitch - dy * 0.0030, this.minPitch, this.maxPitch);
+      this.hasView = true;
       this._apply();
     };
 
@@ -7053,6 +7056,7 @@ class OrbitRig {
         this.minRadius,
         this.maxRadius
       );
+      this.hasView = true;
       this._apply();
     };
 
@@ -9053,16 +9057,9 @@ function setMode(mode) {
 
   wind.setEnabled(mode === 'wind');
   orbit.setActive(mode === 'orbit');
-
-  if (mode === 'plant') {
-    dandelion.setEnabled(false);
-    field.clear();
-  } else {
-    dandelion.setEnabled(true);
-    field.clear();
-  }
-
-  if (mode !== 'orbit') frameCamera();
+  // Modes share state: planted dandelions stay in the meadow when the user
+  // switches tools, and the orbit pose is kept when they go back to wind.
+  dandelion.setEnabled(mode !== 'plant');
 
   const hint = MODE_HINTS[mode];
   if (hint) {
@@ -9130,7 +9127,7 @@ canvas.addEventListener('pointerdown', (e) => {
 /* ------------------------------------------------------------------ */
 
 function updateCamera(t) {
-  if (currentMode === 'orbit') {
+  if (currentMode === 'orbit' || orbit.hasView) {
     orbit.apply();
     return;
   }
@@ -9294,6 +9291,7 @@ window.addEventListener('resize', () => {
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
   frameCamera();
+  if (currentMode === 'orbit' || orbit.hasView) orbit.apply();
   sky.resize();
   post.resize();
 });

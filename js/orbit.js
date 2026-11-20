@@ -31,6 +31,7 @@ export class OrbitRig {
     this.pitch = 0.02;
     this.active = false;
     this.dragging = false;
+    this.hasView = false;
     this.pointers = new Map();
     this.lastX = 0;
     this.lastY = 0;
@@ -75,6 +76,7 @@ export class OrbitRig {
             this.minRadius,
             this.maxRadius
           );
+          this.hasView = true;
           this._apply();
         }
         return;
@@ -86,6 +88,7 @@ export class OrbitRig {
       this.lastY = e.clientY;
       this.yaw = THREE.MathUtils.clamp(this.yaw - dx * 0.0032, -this.maxYaw, this.maxYaw);
       this.pitch = THREE.MathUtils.clamp(this.pitch - dy * 0.0030, this.minPitch, this.maxPitch);
+      this.hasView = true;
       this._apply();
     };
 
@@ -111,6 +114,7 @@ export class OrbitRig {
         this.minRadius,
         this.maxRadius
       );
+      this.hasView = true;
       this._apply();
     };
 
