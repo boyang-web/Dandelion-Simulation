@@ -1,111 +1,36 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#dfe0c6" />
-  <title>等风来 · 蒲公英</title>
-  <meta name="description" content="一朵由代码生成的蒲公英。滑动鼠标或手指制造风，看种子飘散，再等它慢慢长回来。" />
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23e9e1c6'/%3E%3Ccircle cx='16' cy='14' r='8' fill='%23fffaf0'/%3E%3Cpath d='M16 22v7' stroke='%237b934f' stroke-width='2'/%3E%3C/svg%3E" />
-  <link rel="stylesheet" href="./css/style.css?v=30" />
-  <script>
-    // Show a readable message if the scene fails to start.
-    (function () {
-      function report(msg, stack) {
-        var el = document.createElement('pre');
-        el.className = 'js-errors';
-        el.textContent = String(msg) + '\n' + (stack || '');
-        (document.body || document.documentElement).appendChild(el);
-      }
-      window.addEventListener('error', function (e) {
-        report(e.message, e.error && e.error.stack);
-      });
-      window.addEventListener('unhandledrejection', function (e) {
-        var reason = e.reason || {};
-        report('Promise: ' + (reason.message || reason), reason.stack);
-      });
-    })();
-  </script>
-  <script type="importmap">
-    { "imports": { "three": "./vendor/three.module.js" } }
-  </script>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#f4f1e7"><title>等风来 · Demo 目录</title>
+<link rel="stylesheet" href="./src/styles/catalog.css">
 </head>
 <body>
-  <div class="atmosphere" aria-hidden="true">
-    <div class="sky-glow"></div>
-  </div>
-
-  <canvas id="stage" aria-label="草地上的蒲公英，滑动可制造风"></canvas>
-  <canvas id="fireflies" aria-hidden="true"></canvas>
-
-  <div class="night-veil" id="nightVeil" aria-hidden="true"></div>
-  <div class="golden-veil" id="goldenVeil" aria-hidden="true"></div>
-  <div class="stars" id="stars" aria-hidden="true"></div>
-  <div class="sun-rays" id="sunRays" aria-hidden="true"></div>
-
-  <div class="celestial celestial--sun" id="sunBody" role="slider" tabindex="0"
-       aria-label="太阳轨道：长按并沿天空弧线拖动，调整时间"
-       aria-valuemin="0" aria-valuemax="100" aria-valuenow="40" aria-valuetext="时间 40%，午后">
-    <div class="celestial__halo"></div>
-    <div class="celestial__disc celestial__disc--sun"></div>
-    <div class="celestial__hint">长按并沿弧线拖动 · 拨动时间</div>
-  </div>
-
-  <div class="celestial celestial--moon is-hidden" id="moonBody" role="slider" tabindex="0"
-       aria-label="月亮轨道：长按并沿天空弧线拖动，调整时间"
-       aria-valuemin="0" aria-valuemax="100" aria-valuenow="40" aria-valuetext="时间 40%，午后">
-    <div class="celestial__halo"></div>
-    <div class="celestial__disc celestial__disc--moon"></div>
-    <div class="celestial__hint">长按并沿弧线拖动 · 拨动时间</div>
-  </div>
-
-  <svg class="celestial-arc" id="celestialArc" aria-hidden="true" focusable="false">
-    <path id="celestialArcPath"></path>
-    <path id="celestialArcBelow" class="celestial-arc__below"></path>
-  </svg>
-
-  <div class="vignette" aria-hidden="true"></div>
-  <div class="grain" aria-hidden="true"></div>
-
-  <div class="fore-sky" aria-hidden="true">
-    <div class="fore-cloud fore-cloud--a"></div>
-    <div class="fore-cloud fore-cloud--b"></div>
-  </div>
-
-  <header class="masthead">
-    <p class="masthead__kicker">Taraxacum · 等风</p>
-    <h1 class="masthead__title">等风来</h1>
-  </header>
-
-  <div class="hint" id="hint" role="status">
-    <span class="hint__rule" aria-hidden="true"></span>
-    <span class="hint__text hint__text--mouse">滑过草地 · 起风　·　拖动 · 视角　·　点击 · 种植</span>
-    <span class="hint__text hint__text--touch">单指滑过 · 起风　·　双指 · 视角　·　轻点 · 种植</span>
-  </div>
-
-  <div class="meter" aria-hidden="true">
-    <span class="meter__label">WIND</span>
-    <span class="meter__track"><i class="meter__fill"></i></span>
-  </div>
-
-  <div class="no-webgl">
-    <p>这片草地需要 WebGL 才能生长。</p>
-    <p class="no-webgl__sub">请换一个支持 WebGL 的浏览器，或开启硬件加速后再来。</p>
-  </div>
-
-  <pre class="debug" id="debug" hidden></pre>
-
-  <script>
-    (function () {
-      // file:// blocks ES modules; use the generated classic bundle there.
-      // http(s) keeps the modular sources for live development.
-      if (location.protocol === 'file:') {
-        document.write('<script src="./vendor/three.global.js"><\/script>');
-        document.write('<script src="./js/bundle.js?v=30"><\/script>');
-      } else {
-        document.write('<script type="module" src="./js/main.js?v=30"><\/script>');
-      }
-    })();
-  </script>
-</body>
-</html>
+<header><a class="brand" href="./index.html">等风来 <i lang="en">Taraxacum</i></a><nav aria-label="目录"><a href="#play">试玩</a><a href="#gallery">资产陈列</a><a href="dev.html">控制台 ↗</a></nav></header>
+<main>
+<section class="hero" id="play">
+<div class="copy"><p class="eyebrow">可玩 Demo <span> / </span> 六章探索</p><h1>风灵山谷</h1><p>从一株蒲公英开始，把种子送回山谷。沿着花径唤醒老树与风车，学会乘风，再登上云端的浮岛。</p><a class="button" href="game.html">进入山谷 <b>→</b></a></div>
+<img src="assets/wind-island.webp" alt="草甸、垂藤与瀑布覆盖的浮空岩岛" class="island">
+</section>
+<div class="pair">
+<a class="panel proto" href="prototype/index.html"><small>概念原型</small><h2>风的试验田 <b>↗</b></h2><p>固定机位，点击种植，滑过成熟的花头看绒种随风散开。</p></a>
+<a class="panel studio" href="dev.html"><small>开发工具</small><h2>场景控制台 <b>↗</b></h2><p>在当前游戏场景中打开调参面板，观察风场、光照与植被的变化。</p></a>
+</div>
+<section id="gallery"><h2>资产陈列室</h2>
+<div class="exhibits">
+<a href="labs/vegetation.html"><strong>植物图鉴</strong><span>草叶、野花与植被组合</span><b>↗</b></a>
+<a href="labs/landmarks.html"><strong>地标模型</strong><span>树木、风车与场景地标</span><b>↗</b></a>
+<a href="labs/distant.html"><strong>远景研究</strong><span>山脊、天空与大气层次</span><b>↗</b></a>
+<a href="labs/valley.html"><strong>山谷全景</strong><span>在完整环境中查看资产组合</span><b>↗</b></a>
+</div></section>
+</main><footer>等风来 · 游戏 Demo <a href="docs/presentation.html">查看项目演示文稿 ↗</a></footer>
+<dialog id="launch"><h2>打开本地 Demo</h2><p>Windows 双击项目里的 Start.cmd，macOS 双击「启动.command」。启动器会在浏览器中打开目录。</p><form method="dialog"><button>知道了</button></form></dialog>
+<script>
+if(location.protocol==='file:') document.addEventListener('click',event=>{
+  const link=event.target.closest('a');
+  if(link && !link.hash && !link.href.endsWith('/docs/presentation.html') && !link.classList.contains('brand')){
+    event.preventDefault();document.getElementById('launch').showModal();
+  }
+});
+</script>
+</body></html>

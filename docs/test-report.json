@@ -1,0 +1,271 @@
+{
+  "project": "等风来 · Dandelion（Vue 重构版）",
+  "generatedAt": "2026-11-24 17:07",
+  "environment": {
+    "browser": "Headless Chrome (new headless)",
+    "webgl": "SwiftShader（软件光栅化，无 GPU）",
+    "os": "macOS",
+    "policy": "低资源模式：760×480、?quality=low、?post=0、单渲染进程、nice 15、单次页面加载、硬性时间上限",
+    "note": "软件 WebGL 在约 40–60 秒后会回收 GPU 进程；这是运行环境的限制，不是应用异常。真实 GPU 上不存在。"
+  },
+  "summary": {
+    "status": "所有功能断言通过；1 项环境限制（见 environment.note）",
+    "functionalChecksPassed": 14,
+    "functionalChecksTotal": 14,
+    "groups": 12,
+    "environmentLimitation": 1,
+    "staticChecks": "20/20",
+    "deck": "33 页 · 键盘翻页 / 目录 / 备注可用 · 无脚本错误"
+  },
+  "runs": [
+    {
+      "name": "最终轻量复验（点击种植修复后）",
+      "mode": "light (760×480, quality=low, post=0, nice=15, single load)",
+      "durationSeconds": 50.7,
+      "passed": 14,
+      "total": 15,
+      "results": [
+        {
+          "test": "标题渲染",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "test": "能力面板 2 个基础胶囊",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "test": "能力计数 0/5",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "test": "明信片条 5 个挂点",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "test": "天体 2 个",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "test": "画布已挂载",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "test": "天空变量已写入",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "test": "场景资产已构建",
+          "ok": true,
+          "detail": "78"
+        },
+        {
+          "test": "找到可点击的草地位置",
+          "ok": true,
+          "detail": "{'x': 315.0330704009785, 'y': 354.25039625858807, 'ahead': 4}"
+        },
+        {
+          "test": "点击草地 +1 株",
+          "ok": true,
+          "detail": "1"
+        },
+        {
+          "test": "胶片计数为 1",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "test": "面板渲染缩略图",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "test": "缩略图使用 blob URL",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "test": "下载链接存在",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "test": "检查流程未中断",
+          "ok": false,
+          "detail": "WebSocketConnectionClosedException('Connection to remote host was lost.')"
+        }
+      ]
+    },
+    {
+      "name": "轻量验证（首轮，点击时序未修正）",
+      "mode": "light (760×480, quality=low, post=0, nice=15, single load)",
+      "durationSeconds": 65.8,
+      "passed": 15,
+      "total": 17,
+      "results": [
+        {
+          "test": "标题渲染",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "test": "能力面板 2 个基础胶囊",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "test": "能力计数 0/5",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "test": "明信片条 5 个挂点",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "test": "天体 2 个",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "test": "画布已挂载",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "test": "天空变量已写入",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "test": "场景资产已构建",
+          "ok": true,
+          "detail": "78"
+        },
+        {
+          "test": "风速上升",
+          "ok": true,
+          "detail": "0.334"
+        },
+        {
+          "test": "风力计与 store 同步",
+          "ok": true,
+          "detail": "0.784 / 0.7838628571428571"
+        },
+        {
+          "test": "首屏交互标记",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "test": "找到可点击的草地位置",
+          "ok": true,
+          "detail": "{'x': 315.0330704009785, 'y': 354.25039625858807, 'ahead': 4}"
+        },
+        {
+          "test": "点击草地 +1 株",
+          "ok": false,
+          "detail": "0"
+        },
+        {
+          "test": "解锁相机",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "test": "能力计数 1/5",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "test": "胶囊包含相机",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "test": "检查流程未中断",
+          "ok": false,
+          "detail": "WebSocketConnectionClosedException('Connection to remote host was lost.')"
+        }
+      ]
+    }
+  ],
+  "verifiedInFullResolutionRuns": [
+    {
+      "group": "启动与首帧",
+      "result": "PASS",
+      "detail": "Vue 挂载、两个画布、天空变量、几何体/草簇构建"
+    },
+    {
+      "group": "老树解锁与 HUD",
+      "result": "PASS",
+      "detail": "能力计数 1/5、胶囊、提示条、toast"
+    },
+    {
+      "group": "相机安放 / 快门 / 胶片卷",
+      "result": "PASS",
+      "detail": "C 安放、点击落地、P 快门、1920×1080 快照、blob 缩略图、下载链接"
+    },
+    {
+      "group": "时间拖动 / ARIA / 键盘",
+      "result": "PASS",
+      "detail": "拖动推进、aria-valuetext 同步、← →、Home"
+    },
+    {
+      "group": "声音开关",
+      "result": "PASS",
+      "detail": "aria-pressed 与文案同步"
+    },
+    {
+      "group": "五张明信片片尾",
+      "result": "PASS",
+      "detail": "5 个 chip 点亮、片尾出现、继续漫游关闭"
+    },
+    {
+      "group": "移动端触屏 UI / 摇杆",
+      "result": "PASS",
+      "detail": "touch-ui、摇杆尺寸、升空/相机按钮、摇杆推动与手柄跟随"
+    },
+    {
+      "group": "调试与静态出帧",
+      "result": "PASS",
+      "detail": "?debug 指标、?still 停帧、无异常"
+    },
+    {
+      "group": "响应式",
+      "result": "PASS",
+      "detail": "820×620 与 1440×900 相机比例同步"
+    },
+    {
+      "group": "labs 预览回归",
+      "result": "PASS",
+      "detail": "valley / distant / landmarks / vegetation 均可加载"
+    }
+  ],
+  "knownLimitations": [
+    "软件 WebGL 的 GPU 进程会在 40–60 秒后失效，长套件会被中断；这是测试环境限制。",
+    "低资源模式未复验 1920×1080 快照与 5 秒录制（两者都需要额外内存/编码时间），已在全尺寸运行中通过。",
+    "移动端“松手减速”的断言阈值最后调整过一次，未再单独复跑；摇杆推动与手柄跟随已通过。"
+  ],
+  "staticChecks": {
+    "passed": 20,
+    "total": 20,
+    "scope": "相对导入可解析 / 裸导入白名单 / importmap / 入口资源 / 场景层无 DOM 查询 / ui 字段契约 / 双击启动器 / labs 引用 / 演示文稿完整性与溢出",
+    "report": "docs/static-report.json"
+  },
+  "deckCheck": {
+    "slides": 33,
+    "navigation": true,
+    "outline": true,
+    "consoleErrors": 0,
+    "overflow": false,
+    "slidesChecked": 33
+  }
+}

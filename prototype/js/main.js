@@ -3,7 +3,6 @@ import { WindField } from './wind.js';
 import { createWorld } from './world.js';
 import { DANDELION_PARAMS } from './dandelion.js';
 import { DandelionField } from './dandelion-field.js';
-import { OrbitRig } from './orbit.js';
 import { Sky } from './sky.js';
 import { createPostPipeline } from './post.js';
 import { createDevConsole } from './dev-console.js';
@@ -91,16 +90,6 @@ scene.add(hemi, keyLight, fill, rim);
 const wind = new WindField(camera);
 const world = createWorld(scene, { camera });
 const field = new DandelionField({ scene, camera, renderer, wind });
-const orbit = new OrbitRig(camera, canvas, {
-  target: new THREE.Vector3(0, 2.0, 0.02),
-  minRadius: 2.5,
-  maxRadius: 32,
-  minPitch: 0,
-  maxPitch: Math.PI / 2 - 0.02
-});
-orbit.onDragStart = () => wind.setEnabled(false);
-orbit.onDragEnd = () => wind.setEnabled(true);
-
 const sky = new Sky({
   wind,
   world,
@@ -206,7 +195,7 @@ function updateUI() {
     lastShownWind = shown;
   }
 
-  if (!interacted && (wind.strength > 0.12 || field.count > 0 || orbit.hasView)) {
+  if (!interacted && (wind.strength > 0.12 || field.count > 0)) {
     interacted = true;
     document.body.classList.add('interacted');
     hint.setAttribute('aria-hidden', 'true');
@@ -270,33 +259,6 @@ canvas.addEventListener('pointercancel', (e) => {
 });
 
 /* ------------------------------------------------------------------ */
-/* camera drift                                                        */
-/* ------------------------------------------------------------------ */
-/* camera drift                                                        */
-/* ------------------------------------------------------------------ */
-
-function updateCamera(t) {
-  if (orbit.hasView) {
-    orbit.apply();
-    return;
-  }
-
-  // The ground should feel planted. No pointer-driven camera parallax:
-  // only an almost imperceptible breathing drift over tens of seconds.
-  const driftX = Math.sin(t * 0.075) * 0.012;
-  const driftY = Math.sin(t * 0.11 + 0.7) * 0.008;
-  const driftZ = Math.sin(t * 0.06 + 0.3) * 0.012;
-
-  camera.position.set(
-    basePosition.x + driftX,
-    basePosition.y + driftY,
-    basePosition.z + driftZ
-  );
-  camera.lookAt(lookAt.x, lookAt.y, lookAt.z);
-  camera.updateMatrixWorld();
-}
-
-/* ------------------------------------------------------------------ */
 /* optional auto-demo (?auto)                                          */
 /* ------------------------------------------------------------------ */
 
@@ -352,7 +314,7 @@ function updateDebug() {
 
 function stepScene(dt) {
   elapsed += dt;
-  updateCamera(elapsed);
+
 
   if (isAuto) {
     driveAuto(dt);
@@ -437,13 +399,13 @@ window.addEventListener('resize', () => {
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
   frameCamera();
-  if (orbit.hasView) orbit.apply();
+
   sky.resize();
   post.resize();
 });
 
 // A tiny console handle for tinkering.
 window.__dandy = {
-  scene, camera, renderer, wind, world, field, orbit,
+  scene, camera, renderer, wind, world, field,
   sky, post, fireflyRenderer, fireflyScene, devConsole, dandelionParams: DANDELION_PARAMS
 };

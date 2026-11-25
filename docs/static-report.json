@@ -1,0 +1,116 @@
+{
+  "passed": 22,
+  "total": 22,
+  "results": [
+    {
+      "test": "相对导入全部可解析",
+      "ok": true,
+      "detail": "[]"
+    },
+    {
+      "test": "裸导入仅 three / vue",
+      "ok": true,
+      "detail": "['three', 'vue']"
+    },
+    {
+      "test": "Demo 目录覆盖全部展项",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "test": "Windows 启动器使用共用服务",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "test": "importmap 存在",
+      "ok": true,
+      "detail": "{'three': './vendor/three.module.js', 'vue': './vendor/vue.esm-browser.prod.js'}"
+    },
+    {
+      "test": "importmap 目标文件存在",
+      "ok": true,
+      "detail": "{'three': './vendor/three.module.js', 'vue': './vendor/vue.esm-browser.prod.js'}"
+    },
+    {
+      "test": "入口样式存在",
+      "ok": true,
+      "detail": "src/styles/style.css"
+    },
+    {
+      "test": "入口模块存在",
+      "ok": true,
+      "detail": "src/main.js"
+    },
+    {
+      "test": "game.html 有挂载点",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "test": "场景层无 DOM 查询",
+      "ok": true,
+      "detail": "[]"
+    },
+    {
+      "test": "ui 字段均在 store 中定义",
+      "ok": true,
+      "detail": "[]"
+    },
+    {
+      "test": "双击启动器存在",
+      "ok": true,
+      "detail": "启动.command"
+    },
+    {
+      "test": "双击启动器可执行",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "test": "启动器调用本地服务器",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "test": "启动器可禁用自动开窗（便于自测）",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "test": "file:// 提示指向启动器",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "test": "labs 资源引用有效",
+      "ok": true,
+      "detail": "[]"
+    },
+    {
+      "test": "演示文稿页数 ≥ 30",
+      "ok": true,
+      "detail": "33"
+    },
+    {
+      "test": "每页都有标题",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "test": "演示文稿无缺失图片",
+      "ok": true,
+      "detail": "[]"
+    },
+    {
+      "test": "演示文稿可用键盘翻页",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "test": "演示文稿含演讲备注",
+      "ok": true,
+      "detail": "28"
+    }
+  ]
+}

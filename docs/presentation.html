@@ -1,0 +1,2210 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>等风来 · 蒲公英 — Vue 重构与体验评审</title>
+<meta name="description" content="等风来 · 蒲公英：Vue 框架化重构、功能实现与用户体验说明。" />
+<style>
+  :root {
+    --paper: #f6efdc;
+    --paper-2: #efe5cd;
+    --paper-3: #e9dec2;
+    --ink: #41534a;
+    --ink-soft: rgba(65, 83, 74, 0.72);
+    --ink-faint: rgba(65, 83, 74, 0.42);
+    --line: rgba(65, 83, 74, 0.16);
+    --line-strong: rgba(65, 83, 74, 0.3);
+    --green: #6f8748;
+    --gold: #a97c43;
+    --blue: #4f7787;
+    --red: #b15f45;
+    --violet: #75658f;
+    --serif: "Songti SC", "Noto Serif SC", "STSong", "SimSun", serif;
+    --sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #d9d2bb;
+    color: var(--ink);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+
+  body {
+    display: grid;
+    place-items: center;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Stage                                                             */
+  /* ------------------------------------------------------------------ */
+
+  .stage {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    background: var(--paper);
+    overflow: hidden;
+    box-shadow: 0 24px 80px rgba(44, 56, 42, 0.24);
+  }
+
+  .stage::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(60% 42% at 50% -6%, rgba(255, 250, 232, 0.9) 0%, rgba(255, 248, 226, 0) 60%),
+      radial-gradient(50% 40% at 88% 100%, rgba(175, 190, 160, 0.22) 0%, rgba(175, 190, 160, 0) 70%),
+      repeating-linear-gradient(0deg, rgba(65, 83, 74, 0.02) 0 1px, transparent 1px 28px);
+  }
+
+  .slide {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    display: none;
+    flex-direction: column;
+    padding: 58px 76px 62px;
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  .slide.is-active {
+    display: flex;
+    animation: rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(14px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Chrome (progress, brand, page number, hint)                        */
+  /* ------------------------------------------------------------------ */
+
+  .chrome {
+    position: absolute;
+    inset: 0;
+    z-index: 6;
+    pointer-events: none;
+  }
+
+  .progress {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 2px;
+    width: 0;
+    background: linear-gradient(90deg, var(--green), var(--gold));
+    transition: width 0.35s ease;
+  }
+
+  .brand {
+    position: absolute;
+    top: 22px;
+    left: 34px;
+    font: 9px/1 var(--mono);
+    letter-spacing: 0.34em;
+    color: var(--ink-faint);
+    text-transform: uppercase;
+  }
+
+  .page {
+    position: absolute;
+    right: 34px;
+    bottom: 22px;
+    font: 10px/1 var(--mono);
+    letter-spacing: 0.2em;
+    color: var(--ink-faint);
+  }
+
+  .nav-btn {
+    position: absolute;
+    bottom: 16px;
+    width: 34px;
+    height: 34px;
+    border: 1px solid var(--line-strong);
+    border-radius: 50%;
+    background: rgba(255, 252, 240, 0.8);
+    color: var(--ink-soft);
+    font: 13px/1 var(--mono);
+    cursor: pointer;
+    pointer-events: auto;
+    transition: background 0.2s ease, color 0.2s ease;
+  }
+  .nav-btn:hover { background: var(--ink); color: #fdf7e6; }
+  .nav-btn--prev { right: 88px; }
+  .nav-btn--next { right: 44px; }
+
+  .nav-hint {
+    position: absolute;
+    left: 34px;
+    bottom: 22px;
+    font: 9px/1 var(--sans);
+    letter-spacing: 0.12em;
+    color: var(--ink-faint);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Typography                                                        */
+  /* ------------------------------------------------------------------ */
+
+  .kicker {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font: 10px/1 var(--mono);
+    letter-spacing: 0.3em;
+    color: var(--ink-faint);
+    text-transform: uppercase;
+    margin-bottom: 18px;
+  }
+
+  .kicker::before {
+    content: "";
+    width: 26px;
+    height: 1px;
+    background: var(--line-strong);
+  }
+
+  h1 {
+    margin: 0;
+    font: 500 clamp(40px, 5.4vw, 74px)/1.06 var(--serif);
+    letter-spacing: 0.06em;
+  }
+
+  h2 {
+    margin: 0 0 14px;
+    font: 500 clamp(26px, 2.7vw, 38px)/1.18 var(--serif);
+    letter-spacing: 0.04em;
+  }
+
+  h3 {
+    margin: 0 0 8px;
+    font: 600 13px/1.4 var(--sans);
+    letter-spacing: 0.06em;
+  }
+
+  p { margin: 0 0 10px; }
+
+  .lede {
+    max-width: 46em;
+    font: 400 clamp(13px, 1.25vw, 16px)/1.85 var(--sans);
+    color: var(--ink-soft);
+    letter-spacing: 0.02em;
+  }
+
+  .small { font-size: 11px; line-height: 1.75; color: var(--ink-soft); }
+  .tiny { font-size: 10px; line-height: 1.7; color: var(--ink-faint); }
+  .mono { font-family: var(--mono); }
+  .accent { color: var(--green); }
+  .gold { color: var(--gold); }
+  .blue { color: var(--blue); }
+  .red { color: var(--red); }
+
+  .body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 18px; }
+
+  /* ------------------------------------------------------------------ */
+  /*  Layout helpers                                                    */
+  /* ------------------------------------------------------------------ */
+
+  .cols { display: grid; gap: 20px; }
+  .c2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .c3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .c4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .c-3-2 { grid-template-columns: 1.35fr 1fr; }
+  .c-2-3 { grid-template-columns: 1fr 1.4fr; }
+
+  .card {
+    position: relative;
+    border: 1px solid var(--line);
+    background: linear-gradient(180deg, rgba(255, 252, 242, 0.72), rgba(255, 252, 242, 0.28));
+    padding: 18px 20px;
+    border-radius: 3px;
+  }
+
+  .card--dark {
+    background: linear-gradient(180deg, #314138, #2a3831);
+    border-color: rgba(255, 248, 230, 0.12);
+    color: #f4ecd8;
+  }
+
+  .card--dark .small, .card--dark .tiny { color: rgba(244, 236, 216, 0.66); }
+  .card--dark h3 { color: #fff8e6; }
+
+  .stat {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 14px 16px;
+    border-left: 1px solid var(--line-strong);
+  }
+
+  .stat b {
+    font: 400 clamp(26px, 2.6vw, 38px)/1 var(--serif);
+    letter-spacing: 0.02em;
+  }
+
+  .stat span {
+    font: 10px/1.5 var(--sans);
+    letter-spacing: 0.12em;
+    color: var(--ink-faint);
+  }
+
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+    font: 9px/1.5 var(--mono);
+    letter-spacing: 0.08em;
+    color: var(--ink-soft);
+    white-space: nowrap;
+  }
+
+  .tag--on { border-color: rgba(111, 135, 72, 0.5); color: var(--green); background: rgba(111, 135, 72, 0.08); }
+  .tag--gold { border-color: rgba(169, 124, 67, 0.5); color: var(--gold); background: rgba(169, 124, 67, 0.08); }
+  .tag--red { border-color: rgba(177, 95, 69, 0.45); color: var(--red); background: rgba(177, 95, 69, 0.07); }
+
+  ul.clean { margin: 0; padding: 0; list-style: none; }
+  ul.clean li {
+    position: relative;
+    padding: 5px 0 5px 16px;
+    font-size: 12px;
+    line-height: 1.75;
+    color: var(--ink-soft);
+  }
+  ul.clean li::before {
+    content: "";
+    position: absolute;
+    left: 2px;
+    top: 13px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--gold);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+    line-height: 1.6;
+  }
+
+  th, td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+
+  th {
+    font: 600 9px/1.4 var(--mono);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  td strong { font-weight: 600; color: var(--ink); }
+
+  pre.code {
+    margin: 0;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: rgba(58, 74, 62, 0.045);
+    font: 10px/1.7 var(--mono);
+    color: #3c4d43;
+    overflow: auto;
+  }
+
+  .code em { color: var(--gold); font-style: normal; }
+  .code b { color: var(--green); font-weight: 600; }
+
+  .figure {
+    border: 1px solid var(--line);
+    background: #fbf7ea;
+    padding: 10px;
+    border-radius: 3px;
+  }
+
+  .figure img { display: block; width: 100%; height: auto; border-radius: 1px; }
+
+  .shot {
+    border: 1px solid var(--line);
+    overflow: hidden;
+    background: #dfd7c2;
+  }
+  .shot img { display: block; width: 100%; height: 100%; object-fit: cover; }
+
+  .caption {
+    padding: 7px 10px;
+    font: 9px/1.5 var(--mono);
+    letter-spacing: 0.08em;
+    color: var(--ink-faint);
+    border-top: 1px solid var(--line);
+    background: rgba(255, 252, 240, 0.6);
+  }
+
+  .flow {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+  }
+
+  .flow-node {
+    flex: 1;
+    padding: 12px 12px;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    background: rgba(255, 252, 240, 0.7);
+    font-size: 10.5px;
+    line-height: 1.55;
+  }
+
+  .flow-node b { display: block; font: 600 10px/1.4 var(--mono); letter-spacing: 0.08em; margin-bottom: 4px; }
+
+  .flow-arrow {
+    align-self: center;
+    padding: 0 8px;
+    color: var(--ink-faint);
+    font-size: 12px;
+  }
+
+  .bracket {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 7px 10px;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    font: 10px/1.4 var(--mono);
+    color: var(--ink-soft);
+    background: rgba(255, 252, 240, 0.5);
+  }
+
+  .split-list { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 18px; }
+
+  /* ------------------------------------------------------------------ */
+  /*  Title slide                                                       */
+  /* ------------------------------------------------------------------ */
+
+  .cover { justify-content: center; padding-left: 96px; }
+  .cover h1 { font-size: clamp(58px, 8vw, 116px); letter-spacing: 0.1em; }
+  .cover .sub {
+    margin-top: 18px;
+    font: 12px/2 var(--sans);
+    letter-spacing: 0.34em;
+    color: var(--ink-soft);
+    text-transform: uppercase;
+  }
+  .cover .rule { width: 64px; height: 1px; background: var(--line-strong); margin: 34px 0 26px; }
+  .cover .meta { display: flex; gap: 34px; flex-wrap: wrap; }
+  .cover .meta div { font: 10px/1.7 var(--mono); letter-spacing: 0.1em; color: var(--ink-faint); }
+  .cover .meta b { display: block; font: 500 13px/1.6 var(--serif); letter-spacing: 0.12em; color: var(--ink); }
+
+  .cover-art {
+    position: absolute;
+    right: -60px;
+    top: 50%;
+    width: 46vw;
+    height: 46vw;
+    max-width: 720px;
+    max-height: 720px;
+    transform: translateY(-50%);
+    opacity: 0.9;
+    pointer-events: none;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Section divider                                                   */
+  /* ------------------------------------------------------------------ */
+
+  .divider { justify-content: center; }
+  .divider .index {
+    font: 300 76px/1 var(--serif);
+    color: var(--ink-faint);
+    margin-bottom: 6px;
+  }
+  .divider h2 { font-size: clamp(34px, 4vw, 56px); }
+  .divider .lede { margin-top: 14px; }
+
+  /* ------------------------------------------------------------------ */
+  /*  Notes / overview                                                  */
+  /* ------------------------------------------------------------------ */
+
+  .notes-panel {
+    position: absolute;
+    z-index: 20;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    max-height: 42%;
+    overflow: auto;
+    padding: 16px 40px 22px;
+    background: rgba(38, 50, 42, 0.96);
+    color: #f2ead7;
+    font-size: 12px;
+    line-height: 1.8;
+    display: none;
+  }
+  .notes-panel.is-open { display: block; }
+  .notes-panel h4 {
+    margin: 0 0 6px;
+    font: 600 9px/1.4 var(--mono);
+    letter-spacing: 0.2em;
+    color: #c7bfa6;
+    text-transform: uppercase;
+  }
+
+  .outline {
+    position: absolute;
+    z-index: 30;
+    inset: 0;
+    display: none;
+    padding: 60px 76px;
+    background: rgba(246, 239, 220, 0.98);
+    overflow: auto;
+  }
+  .outline.is-open { display: block; }
+  .outline h3 { margin-bottom: 20px; font: 500 26px/1.2 var(--serif); letter-spacing: 0.06em; }
+  .outline ol {
+    columns: 2;
+    column-gap: 46px;
+    margin: 0;
+    padding-left: 22px;
+    font-size: 12px;
+    line-height: 2.05;
+    color: var(--ink-soft);
+  }
+  .outline li { break-inside: avoid; cursor: pointer; }
+  .outline li:hover { color: var(--green); }
+  .outline li::marker { color: var(--gold); font-family: var(--mono); font-size: 10px; }
+
+  /* ------------------------------------------------------------------ */
+  /*  CSS mockups (no screenshots needed)                                */
+  /* ------------------------------------------------------------------ */
+
+  .phone {
+    position: relative;
+    height: 196px;
+    border: 1px solid var(--line);
+    background: #dfe4cf;
+    overflow: hidden;
+    border-radius: 4px;
+  }
+  .phone__screen {
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(180deg, #a9c3c9 0%, #c6d3cb 34%, #dbe0c6 56%, #cfd8b8 72%, #b9c8a2 100%);
+  }
+  .phone__land {
+    position: absolute;
+    left: -12%; right: -12%; bottom: 16%;
+    height: 40%;
+    background: radial-gradient(120% 100% at 50% 100%, #93a67c 0%, #75895f 58%, #5f7350 100%);
+    border-radius: 50% 50% 0 0 / 42% 42% 0 0;
+  }
+  .phone__land::after {
+    content: "";
+    position: absolute;
+    left: 26%; right: 10%; top: 6%;
+    height: 46%;
+    background: radial-gradient(90% 100% at 50% 100%, #a9b98d, #7d9166 70%, #66794f);
+    border-radius: 50% 50% 0 0 / 46% 46% 0 0;
+    opacity: 0.75;
+  }
+  .phone__sun {
+    position: absolute; right: 16%; top: 12%;
+    width: 42px; height: 42px; border-radius: 50%;
+    background: radial-gradient(circle, #fff9e3 0%, rgba(255,246,214,0.55) 42%, rgba(255,246,214,0) 72%);
+    filter: blur(0.4px);
+  }
+  .phone__kicker {
+    position: absolute; left: 12px; top: 10px;
+    font: 6.5px var(--mono); letter-spacing: 0.22em; color: rgba(60, 76, 62, 0.62);
+  }
+  .phone__title {
+    position: absolute; left: 12px; top: 20px;
+    font: 500 14px var(--serif); letter-spacing: 0.16em; color: #3f5142;
+  }
+  .phone__meter { position: absolute; right: 12px; top: 12px; width: 40px; height: 1px; background: rgba(60, 76, 62, 0.2); }
+  .phone__meter i { display: block; width: 58%; height: 100%; background: rgba(60, 76, 62, 0.5); }
+  .phone__chips { position: absolute; right: 10px; top: 20px; display: flex; gap: 3px; max-width: 46%; flex-wrap: wrap; justify-content: flex-end; }
+  .phone__chip { font: 6px var(--mono); padding: 2px 5px; border: 1px solid rgba(60, 76, 62, 0.32); border-radius: 99px; color: rgba(60, 76, 62, 0.8); }
+  .phone__chip.is-on { border-color: rgba(111, 135, 72, 0.6); color: #586d3f; background: rgba(111, 135, 72, 0.12); }
+  .phone__stick {
+    position: absolute; left: 12px; bottom: 14px;
+    width: 54px; height: 54px; border-radius: 50%;
+    border: 1px solid rgba(255, 250, 235, 0.55);
+    background: rgba(34, 44, 32, 0.24);
+  }
+  .phone__stick i {
+    position: absolute; left: 50%; top: 50%;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: rgba(255, 250, 235, 0.42);
+    transform: translate(-50%, -62%);
+  }
+  .phone__btns {
+    position: absolute; right: 10px; bottom: 12px;
+    display: grid; grid-template-columns: 20px 26px; grid-auto-rows: 20px;
+    gap: 4px; justify-items: end; align-items: end;
+  }
+  .phone__btns b {
+    display: grid; place-items: center;
+    width: 20px; height: 20px; border-radius: 50%;
+    border: 1px solid rgba(255, 250, 235, 0.48);
+    background: rgba(34, 44, 32, 0.34);
+    color: #fff8e9; font: 5.6px var(--sans); letter-spacing: 0.02em;
+  }
+  .phone__btns b.big { width: 26px; height: 26px; font-size: 6.2px; }
+  .phone__btns b.shutter { background: rgba(150, 100, 60, 0.52); }
+  .phone__hint {
+    position: absolute; left: 50%; bottom: 5px; transform: translateX(-50%);
+    font: 5.6px var(--sans); letter-spacing: 0.1em; color: rgba(255, 250, 235, 0.82);
+    white-space: nowrap;
+  }
+  .phone--land { height: 150px; }
+  .phone--land .phone__title { font-size: 11px; top: 18px; }
+  .phone--land .phone__stick { width: 40px; height: 40px; bottom: 10px; }
+  .phone--land .phone__btns { bottom: 8px; }
+  .phone--land .phone__hint { display: none; }
+
+  .mock {
+    position: relative;
+    height: 150px;
+    border: 1px solid var(--line);
+    background: rgba(255, 252, 242, 0.55);
+    padding: 10px 12px;
+    overflow: hidden;
+  }
+  .mock__label {
+    font: 7.5px var(--mono); letter-spacing: 0.16em; color: var(--ink-faint);
+    text-transform: uppercase; margin-bottom: 7px;
+  }
+  .stack { display: flex; flex-direction: column; gap: 3px; }
+  .stack span {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 3px 7px; border: 1px solid var(--line);
+    background: rgba(255, 253, 245, 0.85);
+    font: 7.2px var(--mono); color: var(--ink-soft);
+  }
+  .stack span b { color: var(--gold); font-weight: 400; }
+  .mock__film { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .mock__film i {
+    display: block; height: 44px; border: 1px solid var(--line);
+    background: linear-gradient(140deg, #c3d0c4, #e6dfc7 55%, #b7c3ae);
+  }
+  .mock__film i:nth-child(2) { background: linear-gradient(200deg, #d9d2ae, #a9bec0 60%, #8fa37a); }
+  .mock__film i:nth-child(3) { background: linear-gradient(160deg, #b9c7cf, #e9e2cf 50%, #96ab7f); }
+  .mock__filmrow { display: flex; justify-content: space-between; margin-top: 6px; font: 7px var(--mono); color: var(--ink-faint); }
+  .mock__end { text-align: center; padding-top: 4px; }
+  .mock__end small { display: block; font: 6.4px var(--mono); letter-spacing: 0.2em; color: var(--ink-faint); }
+  .mock__end strong { display: block; font: 500 13px var(--serif); letter-spacing: 0.12em; margin: 4px 0 7px; }
+  .mock__end .row { display: flex; gap: 3px; justify-content: center; flex-wrap: wrap; }
+  .mock__end .row span { font: 6px var(--mono); padding: 2px 5px; border: 1px solid rgba(111, 135, 72, 0.45); color: #586d3f; border-radius: 99px; }
+  .mock__end em { display: inline-block; margin-top: 8px; font: 6px var(--sans); padding: 3px 9px; border: 1px solid var(--line-strong); font-style: normal; color: var(--ink-soft); }
+
+  .mock__arc { position: relative; height: 96px; }
+  .mock__arc svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .mock__arc .sun {
+    position: absolute; width: 16px; height: 16px; border-radius: 50%;
+    background: radial-gradient(circle, #fff7dd, rgba(255, 236, 190, 0.5) 55%, rgba(255, 236, 190, 0) 75%);
+    box-shadow: 0 0 12px 5px rgba(255, 238, 196, 0.45);
+  }
+  .mock__arc .moon {
+    position: absolute; width: 12px; height: 12px; border-radius: 50%;
+    background: radial-gradient(circle, #f4f7ff, rgba(220, 232, 255, 0.45) 60%, rgba(220, 232, 255, 0) 78%);
+  }
+  .mock__times { display: flex; justify-content: space-between; font: 6.4px var(--mono); color: var(--ink-faint); margin-top: 4px; }
+
+  /* ------------------------------------------------------------------ */
+  /*  Print                                                             */
+  /* ------------------------------------------------------------------ */
+
+  @media print {
+    @page { size: 16in 9in; margin: 0; }
+    html, body { background: #fff; overflow: visible; height: auto; }
+    .stage { width: 16in; height: 9in; box-shadow: none; page-break-after: always; }
+    .slide { display: flex !important; position: relative; opacity: 1 !important; transform: none !important; height: 9in; }
+    .chrome, .notes-panel, .outline { display: none !important; }
+  }
+
+  @media (max-width: 900px) {
+    .slide { padding: 46px 34px 54px; }
+    .c2, .c3, .c4, .c-3-2, .c-2-3 { grid-template-columns: 1fr; }
+    .cover { padding-left: 40px; }
+    .cover-art { opacity: 0.25; }
+    .nav-btn {
+    position: absolute;
+    bottom: 16px;
+    width: 34px;
+    height: 34px;
+    border: 1px solid var(--line-strong);
+    border-radius: 50%;
+    background: rgba(255, 252, 240, 0.8);
+    color: var(--ink-soft);
+    font: 13px/1 var(--mono);
+    cursor: pointer;
+    pointer-events: auto;
+    transition: background 0.2s ease, color 0.2s ease;
+  }
+  .nav-btn:hover { background: var(--ink); color: #fdf7e6; }
+  .nav-btn--prev { right: 88px; }
+  .nav-btn--next { right: 44px; }
+
+  .nav-hint { display: none; }
+  }
+</style>
+</head>
+<body>
+<main class="stage" id="stage">
+
+  <div class="chrome" aria-hidden="true">
+    <i class="progress" id="progress"></i>
+    <span class="brand">Taraxacum · 等风来</span>
+    <span class="page" id="page">01 / 33</span>
+    <span class="nav-hint">← → 翻页 · O 目录 · N 备注 · P 打印</span>
+    <button class="nav-btn nav-btn--prev" id="prev" type="button" aria-label="上一页">←</button>
+    <button class="nav-btn nav-btn--next" id="next" type="button" aria-label="下一页">→</button>
+  </div>
+
+  <!-- ============================================================== -->
+  <!-- 01 · 封面                                                      -->
+  <!-- ============================================================== -->
+  <section class="slide cover" data-title="封面" data-notes="开场 60 秒：项目是什么、今天要评审什么。强调这不是改视觉，而是改结构；玩法与手感保持不变。">
+    <svg class="cover-art" viewBox="0 0 600 600" aria-hidden="true">
+      <defs>
+        <radialGradient id="fluff" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="#fffdf4" stop-opacity="0.95" />
+          <stop offset="55%" stop-color="#f4eed8" stop-opacity="0.55" />
+          <stop offset="100%" stop-color="#f4eed8" stop-opacity="0" />
+        </radialGradient>
+      </defs>
+      <circle cx="300" cy="280" r="210" fill="url(#fluff)" opacity="0.55" />
+      <g stroke="#7f8f63" fill="none" stroke-linecap="round">
+        <path d="M300 280 L300 60" stroke-width="1" opacity="0.5" />
+        <path d="M300 280 L462 150" stroke-width="1" opacity="0.45" />
+        <path d="M300 280 L138 150" stroke-width="1" opacity="0.45" />
+        <path d="M300 280 L500 280" stroke-width="1" opacity="0.4" />
+        <path d="M300 280 L100 280" stroke-width="1" opacity="0.4" />
+        <path d="M300 280 L440 400" stroke-width="1" opacity="0.4" />
+        <path d="M300 280 L160 400" stroke-width="1" opacity="0.4" />
+        <path d="M300 280 L300 488" stroke-width="1" opacity="0.35" />
+      </g>
+      <g fill="#fffdf4" opacity="0.85">
+        <circle cx="300" cy="60" r="9" /><circle cx="462" cy="150" r="8" />
+        <circle cx="138" cy="150" r="8" /><circle cx="500" cy="280" r="7" />
+        <circle cx="100" cy="280" r="7" /><circle cx="440" cy="400" r="6" />
+        <circle cx="160" cy="400" r="6" /><circle cx="300" cy="488" r="5" />
+      </g>
+      <circle cx="300" cy="280" r="46" fill="#f8f2dd" stroke="#c9c0a2" />
+      <g stroke="#a9b08c" stroke-width="1.2" opacity="0.8">
+        <path d="M300 326 L300 470" />
+        <path d="M300 430 q-26 -10 -34 -34" fill="none" />
+      </g>
+    </svg>
+
+    <div class="kicker">FRAMEWORK REFACTOR · REVIEW DECK</div>
+    <h1>等风来</h1>
+    <p class="sub">Dandelion · 一次 Vue 框架化重构</p>
+    <div class="rule"></div>
+    <p class="lede" style="max-width: 34em">
+      一个没有外部贴图的程序化 3D 山谷：滑过草地起风，点击种下蒲公英，
+      在五个地标之间解锁相机、起飞与时间。本稿说明重构后的结构、功能实现、
+      体验取舍与验证结果。
+    </p>
+    <div class="meta">
+      <div><b>技术栈</b>Three.js · Vue 3 · 零构建</div>
+      <div><b>交付</b>重构代码 / 测试报告 / 本文档</div>
+      <div><b>阅读方式</b>← → 翻页，O 目录，N 备注</div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- 02 · 一页看懂                                                  -->
+  <!-- ============================================================== -->
+  <section class="slide" data-title="一页看懂" data-notes="用四个数字建立量级：引擎 29 模块、19 个组件、场景层 0 DOM 查询、68 项断言。">
+    <div class="kicker">ONE PAGE</div>
+    <h2>一页看懂：它是什么，改了什么</h2>
+    <div class="body">
+      <p class="lede">
+        它不是一个“模型展示页”，而是一段可以被操作的自然：风有方向、种子有惯性、
+        蒲公英会生长也会淡出，时间可以被拨动。重构的目标，是让这段自然继续成立，
+        同时让它的“控制面板”变成一套可读、可测、可改的 Vue 应用。
+      </p>
+
+      <div class="cols c4">
+        <div class="stat"><b>14.9k</b><span>行引擎代码（30 个模块）</span></div>
+        <div class="stat"><b>19</b><span>个 Vue 组件（app 层 23 文件）</span></div>
+        <div class="stat"><b>0</b><span>场景层 DOM 查询</span></div>
+        <div class="stat"><b>12</b><span>组自动化功能用例</span></div>
+      </div>
+
+      <div class="cols c3">
+        <div class="card">
+          <h3>玩法</h3>
+          <p class="small">
+            风滚草移动 → 风场变化；点击种草 → 老树开花；三个风眼 → 风车转动；
+            上升气流 → 起飞；枯泉 → 种子恢复；日晷 → 拨动时间。
+          </p>
+        </div>
+        <div class="card">
+          <h3>重构</h3>
+          <p class="small">
+            原 <span class="mono">main.js</span> 同时负责场景与界面，直接修改 40+ 处 DOM。
+            现在拆成 <span class="accent">engine / store / components</span> 三层，
+            场景层不再触碰 DOM。
+          </p>
+        </div>
+        <div class="card">
+          <h3>验证</h3>
+          <p class="small">
+            无头 Chrome + 真实输入事件，覆盖启动、风、种植、解锁、相机、时间、
+            声音、明信片、移动端、静态出帧与响应式。
+          </p>
+        </div>
+      </div>
+
+      <div class="bracket" style="margin-top:auto">
+        <span>核心判断</span>
+        <span>保留“自然的手感”，把“界面的复杂度”交给框架。</span>
+        <span class="tag tag--on">Vue 3.5 · 浏览器构建</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- 03 · 设计目标                                                  -->
+  <!-- ============================================================== -->
+  <section class="slide" data-title="设计目标与原则" data-notes="三条原则分别对应视觉、交互、工程。为后面的取舍做铺垫。">
+    <div class="kicker">PRINCIPLES</div>
+    <h2>设计目标：不画风景，画“风留下的证据”</h2>
+    <div class="body">
+      <div class="cols c-3-2">
+        <div>
+          <ul class="clean">
+            <li><strong>克制。</strong>没有 HUD 仪表盘式堆叠；信息只在需要时出现（上下文提示、toast、能力胶囊）。</li>
+            <li><strong>可解释。</strong>每一处动效都对应一个可读的物理量：风速、种子惯性、太阳高度、草叶弯曲。</li>
+            <li><strong>可误触抵抗。</strong>拖动镜头不种植、点击 UI 不起风、双手操作时视角与风场分离。</li>
+            <li><strong>可降级。</strong>低配设备减草量、关后期；无 WebGL 给说明；不支持录像自动改存照片。</li>
+            <li><strong>可维护。</strong>状态只走一个方向；组件不知道 three.js，引擎不知道 DOM。</li>
+          </ul>
+        </div>
+        <div class="card card--dark">
+          <h3>一句话原则</h3>
+          <p class="small" style="font-family: var(--serif); font-size: 16px; line-height: 1.9; color: #fbf4e2">
+            “让画面自己说话，<br />让界面在需要时出现，<br />让代码在改动时不互相牵连。”
+          </p>
+          <p class="tiny" style="margin-top:14px">
+            这三条分别对应：视觉克制、交互反馈、框架分层。
+          </p>
+        </div>
+      </div>
+
+      <div class="cols c4" style="margin-top:auto">
+        <div class="tag">无外部贴图</div>
+        <div class="tag">无外部模型</div>
+        <div class="tag">离线 vendor</div>
+        <div class="tag">移动端优先的手势</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- 04 · 体验地图                                                  -->
+  <!-- ============================================================== -->
+  <section class="slide" data-title="体验地图" data-notes="按用户真实路径讲，不要按代码模块讲。强调“能力=新的观看方式”。">
+    <div class="kicker">JOURNEY</div>
+    <h2>体验地图：五个地标，五次能力扩张</h2>
+    <div class="body">
+      <div class="flow">
+        <div class="flow-node"><b>1 · 老树</b>在附近种下一株蒲公英 → 老树开花 → 树洞相机落地</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node"><b>2 · 风车</b>三个风眼各一株 → 风车转动 → 可同时种更多</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node"><b>3 · 上升气流</b>靠近按 E → 借风升起 → 长按空格升空</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node"><b>4 · 枯泉</b>靠近按 E → 泉眼复苏 → 种子更快补满</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node"><b>5 · 日晷</b>把太阳拨到刻线 → 日影对齐 → 拨动时间</div>
+      </div>
+
+      <div class="cols c3">
+        <div class="card">
+          <h3>能力是“工具”，不是数值</h3>
+          <p class="small">相机解锁取景与拍照；多株提高种植上限（1→3→6→15）；起飞改变移动维度；恢复让花头更快补种；时间让你主动控制光照。</p>
+        </div>
+        <div class="card">
+          <h3>每一站都改变“看法”</h3>
+          <p class="small">相机让你离开主角；起飞让你俯视山谷；时间让你看见黄昏与星夜。能力不是奖励，而是新的观看方式。</p>
+        </div>
+        <div class="card">
+          <h3>明信片是旅程的存档</h3>
+          <p class="small">在已解锁地标附近拍照/录像，会得到对应明信片；集齐五张出现片尾联系表，进度写入 localStorage。</p>
+        </div>
+      </div>
+
+      <div class="cols c-2-3" style="margin-top:auto">
+        <div class="figure" style="padding:12px 14px">
+          <div class="tiny" style="font-family: var(--mono)">能力解锁顺序</div>
+          <div class="split-list" style="margin-top:6px">
+            <span class="tag tag--on">相机 · camera</span>
+            <span class="tag tag--on">多株 · multiPlant</span>
+            <span class="tag tag--on">起飞 · lift</span>
+            <span class="tag tag--on">恢复 · restore</span>
+            <span class="tag tag--on" style="grid-column: span 2">时间 · time</span>
+          </div>
+        </div>
+        <div class="figure" style="padding:12px 14px">
+          <div class="tiny" style="font-family: var(--mono)">关键常量</div>
+          <div class="split-list" style="margin-top:6px; font-size:11px">
+            <span>种植上限 <b>15</b></span><span>花期 <b>50–70s</b></span>
+            <span>补满花头 <b>≈20s</b></span><span>昼夜一轮 <b>240s</b></span>
+            <span>胶片卷 <b>12</b> 条</span><span>短片 <b>5s / 720p</b></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- 05 · 分节：重构                                                -->
+  <!-- ============================================================== -->
+  <section class="slide divider" data-title="分节 · 重构">
+    <div class="kicker">PART 01</div>
+    <div class="index">01</div>
+    <h2>重构：把“一个文件”拆成“三层”</h2>
+    <p class="lede">先看结构，再看契约，最后看迁移前后的对照。</p>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- 06 · 重构前的痛点                                              -->
+  <!-- ============================================================== -->
+  <section class="slide" data-title="重构前的问题" data-notes="不要否定旧代码，说明它当时的合理性：单页、快速迭代。现在要为可维护性付出结构成本。">
+    <div class="kicker">BEFORE</div>
+    <h2>重构前：场景与界面缠在同一个文件里</h2>
+    <div class="body">
+      <div class="cols c2">
+        <div>
+          <pre class="code">// 旧 main.js（节选，约 1.2k 行）
+const hint = document.getElementById('hint');
+const toastEl = document.getElementById('toast');
+const recBadgeEl = document.getElementById('recBadge');
+...
+function showToast(text, ms = 2800) {
+  toastEl.textContent = text;
+  toastEl.classList.add('is-visible');
+  ...
+}
+function updateAbilityPanel() {
+  abilityListEl.replaceChildren();
+  labels.forEach((label) => {
+    const pill = document.createElement('span');
+    ...
+  });
+}
+</pre>
+          <p class="tiny" style="margin-top:8px">
+            20+ 处 getElementById / querySelector；UI 的生命周期与场景循环共用一套时序。
+          </p>
+        </div>
+        <div>
+          <ul class="clean">
+            <li><strong>改动面大。</strong>改一个 HUD 文案，要读 1.2k 行场景代码。</li>
+            <li><strong>难测试。</strong>没有组件边界，只能整页跑；断言只能看 DOM 文本。</li>
+            <li><strong>状态分散。</strong>能力、明信片、录制、上下文提示各有一份“真相”。</li>
+            <li><strong>性能与结构耦合。</strong>每帧写样式与 UI 更新混在一起，无法独立优化。</li>
+            <li><strong>移动端重复。</strong>按钮的显示/隐藏/文案在 main.js 和 mobile-controls.js 里各写一遍。</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="cols c3" style="margin-top:auto">
+        <div class="card"><h3>症状</h3><p class="small">“换个提示语的文案”级改动，需要理解整个渲染循环。</p></div>
+        <div class="card"><h3>目标</h3><p class="small">让界面“声明它要什么”，让场景“只负责算出来”。</p></div>
+        <div class="card"><h3>底线</h3><p class="small">不改动任何一处物理/着色器行为，不牺牲手感。</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- 07 · 目录结构                                                  -->
+  <!-- ============================================================== -->
+  <section class="slide" data-title="新目录结构" data-notes="打开真实目录对照。指出 engine 不依赖 Vue，app 不依赖场景对象。">
+    <div class="kicker">STRUCTURE</div>
+    <h2>新结构：按“责任”而不是按“文件类型”分</h2>
+    <div class="body">
+      <div class="cols c-3-2">
+        <div>
+          <pre class="code">src/
+├── main.js                  <em># createApp(App).mount('#app')</em>
+├── app/
+│   ├── App.js               <em># 根壳：层叠顺序 / body 类 / 天空绘制器</em>
+│   ├── runtime.js           <em># store · api · host（唯一连接点）</em>
+│   ├── state/ui.js          <em># reactive 状态 + toast/context 动作</em>
+│   ├── lib/sky-painter.js   <em># paint → CSS 变量（60fps 旁路）</em>
+│   └── components/
+│       ├── AtmosphereLayer.js   SceneStage.js
+│       ├── CelestialLayer.js    CelestialBody.js
+│       └── hud/  ×15 个界面组件
+├── engine/
+│   ├── experience.js        <em># 场景 / 输入 / 流程编排</em>
+│   ├── film-archive.js      <em># 胶片卷 · 明信片 · 结尾卡</em>
+│   ├── sky.js               <em># 时间与光（DOM-free）</em>
+│   └── … 27 个模拟与预览模块
+└── styles/  style.css · vegetation.css</pre>
+        </div>
+        <div>
+          <div class="card" style="margin-bottom:12px">
+            <h3>为什么这样分</h3>
+            <ul class="clean">
+              <li><span class="mono">engine</span> 只依赖 three.js，可以在 Canvas 之外被调用。</li>
+              <li><span class="mono">app/state</span> 是唯一的响应式事实来源。</li>
+              <li><span class="mono">components</span> 只认识 store 和 API，不认识场景对象。</li>
+            </ul>
+          </div>
+          <div class="card card--dark">
+            <h3>可验证的指标</h3>
+            <p class="small">场景层 <span class="mono">getElementById / querySelector</span>：<b>0</b><br />
+            app 层行数：<b>1 052</b>（23 文件 / 19 组件）<br />
+            engine 层行数：<b>14.9k</b>（30 模块）</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- 08 · 三层架构图                                                -->
+  <!-- ============================================================== -->
+  <section class="slide" data-title="三层架构" data-notes="重点讲“唯一连接点” runtime.js，以及三层各自禁止做的事。">
+    <div class="kicker">LAYERS</div>
+    <h2>三层架构：引擎 / 状态 / 视图</h2>
+    <div class="body">
+      <div class="cols c3">
+        <div class="card card--dark">
+          <h3>① 引擎层 · engine</h3>
+          <p class="small">场景图、着色器、风场、地形、天体、输入采样、进度读写。</p>
+          <pre class="code" style="margin-top:10px; background: rgba(255,248,230,0.06); border-color: rgba(255,248,230,0.14); color:#e9e0c8">experience.js
+sky.js  wind.js  world.js
+player.js  anchors.js
+film-camera.js  capture.js
+abilities.js  audio.js</pre>
+          <p class="tiny" style="margin-top:8px">不查询 DOM；对外只暴露一个 API。</p>
+        </div>
+        <div class="card">
+          <h3>② 状态层 · store</h3>
+          <p class="small">纯数据 + 少量动作（toast / context / wind）。</p>
+          <pre class="code" style="margin-top:10px">reactive({
+  wind, abilities, context,
+  toast, postcards, film,
+  journeyEnd, record, sound,
+  mobile, sky, camera, debug,
+  ready / interacted / …
+})</pre>
+          <p class="tiny" style="margin-top:8px">不持有 three.js 对象；不渲染。</p>
+        </div>
+        <div class="card">
+          <h3>③ 视图层 · Vue</h3>
+          <p class="small">19 个组件：2 个场景 / 氛围，1 个天体，15 个 HUD。</p>
+          <pre class="code" style="margin-top:10px">&lt;AbilityPanel /&gt;
+&lt;PostcardStrip /&gt;
+&lt;FilmPanel /&gt;
+&lt;TouchPad /&gt;
+&lt;CelestialBody /&gt;</pre>
+          <p class="tiny" style="margin-top:8px">只读 store，只调 API；不写引擎状态。</p>
+        </div>
+      </div>
+
+      <div class="flow" style="margin-top:auto">
+        <div class="flow-node"><b>用户手势</b>鼠标 / 键盘 / 触屏</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node"><b>Vue 组件</b>事件转发 + 指针捕获 + 无障碍</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node"><b>engine API</b>beginPress / joystick / toggle…</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node"><b>store</b>reactive 字段变化</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node"><b>Vue 重渲染</b>声明式更新 DOM</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- 09 · 单向数据流                                                -->
+  <!-- ============================================================== -->
+  <section class="slide" data-title="单向数据流">
+    <div class="kicker">DATA FLOW</div>
+    <h2>单向数据流：只有一条“写”的路径</h2>
+    <div class="body">
+      <div class="cols c-3-2">
+        <div>
+          <pre class="code">// 组件 → 引擎
+&lt;button @click="toggle"&gt;声音 {{ ui.sound.on ? '开' : '关' }}&lt;/button&gt;
+function toggle(e) { e.stopPropagation(); callApi('toggleSound'); }
+
+// 引擎 → store
+function toggleSound() {
+  const on = ambience.toggle();
+  ui.sound.on = on;                      <em>// 唯一事实来源</em>
+  localStorage.setItem(SOUND_KEY, on ? 'on' : 'off');
+}
+
+// store → 组件（自动）
+&lt;button :aria-pressed="ui.sound.on"&gt; … &lt;/button&gt;</pre>
+          <p class="tiny" style="margin-top:10px">
+            组件里没有 <span class="mono">.textContent =</span>，引擎里没有 <span class="mono">.classList.toggle</span>。
+          </p>
+        </div>
+        <div>
+          <div class="card">
+            <h3>约束（写进注释与评审清单）</h3>
+            <ul class="clean">
+              <li>引擎不得出现 <span class="mono">document.querySelector</span>。</li>
+              <li>组件不得写 <span class="mono">runtime.api.objects.*.xxx =</span>。</li>
+              <li>store 字段必须有唯一的写入方。</li>
+              <li>高频数值只能走 sky paint 或 CSS 变量。</li>
+            </ul>
+          </div>
+          <div class="card" style="margin-top:12px">
+            <h3>收益</h3>
+            <p class="small">“谁改了这个值”可回答；“这个按钮为什么显示”可回答；“删掉这个组件会不会影响场景”可回答。</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="cols c4" style="margin-top:auto">
+        <div class="bracket"><span>可读性</span><span>模板即结构</span></div>
+        <div class="bracket"><span>可测性</span><span>状态可断言</span></div>
+        <div class="bracket"><span>可替换</span><span>换 UI 不动引擎</span></div>
+        <div class="bracket"><span>可演进</span><span>易迁 Vite/SFC</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- 10 · store 字段                                                -->
+  <!-- ============================================================== -->
+  <section class="slide" data-title="状态表：谁写谁读" data-notes="如果有人问“界面为什么显示这个”，答案就在这张表。">
+    <div class="kicker">STATE CONTRACT</div>
+    <h2>状态表：每个字段只有一个写入方</h2>
+    <div class="body">
+      <p class="lede" style="max-width:none">
+        这张表就是“界面为什么这样”的答案。高频字段（风、录制计时）只做轻量写；低频字段（能力、明信片）事件驱动。
+      </p>
+      <div class="cols c2">
+        <div>
+          <table>
+            <thead><tr><th>字段</th><th>写入</th><th>读取</th><th>频率</th></tr></thead>
+            <tbody>
+              <tr><td><strong>wind</strong></td><td>updateUI()</td><td>WindMeter</td><td>变化 &gt;0.012</td></tr>
+              <tr><td><strong>abilities</strong></td><td>refreshHUD()</td><td>AbilityPanel</td><td>解锁时</td></tr>
+              <tr><td><strong>context</strong></td><td>stepScene()</td><td>ContextHint</td><td>文本变化时</td></tr>
+              <tr><td><strong>toast</strong></td><td>store.showToast()</td><td>Toast</td><td>事件</td></tr>
+              <tr><td><strong>postcards</strong></td><td>FilmArchive</td><td>PostcardStrip</td><td>解锁 / 拍照</td></tr>
+              <tr><td><strong>film</strong></td><td>FilmArchive</td><td>FilmButton / Panel</td><td>拍照 / 开合</td></tr>
+              <tr><td><strong>record</strong></td><td>录制循环</td><td>RecBadge</td><td>0.1s 节流</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div>
+          <table>
+            <thead><tr><th>字段</th><th>写入</th><th>读取</th><th>频率</th></tr></thead>
+            <tbody>
+              <tr><td><strong>mobile</strong></td><td>describe()</td><td>TouchPad</td><td>状态变化</td></tr>
+              <tr><td><strong>sky.time</strong></td><td>syncShellState()</td><td>ARIA / 文案</td><td>变化时</td></tr>
+              <tr><td><strong>camera</strong></td><td>syncShellState()</td><td>TouchPad 镜像</td><td>状态变化</td></tr>
+              <tr><td><strong>journeyEnd</strong></td><td>FilmArchive</td><td>JourneyEnd</td><td>集齐 5 张</td></tr>
+              <tr><td><strong>sound</strong></td><td>toggleSound()</td><td>SoundToggle</td><td>点击</td></tr>
+              <tr><td><strong>debug</strong></td><td>updateDebug()</td><td>DebugPanel</td><td>0.25s</td></tr>
+              <tr><td><strong>ready / interacted / …</strong></td><td>引擎 + App watch</td><td>&lt;body&gt; class</td><td>一次性</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="bracket" style="margin-top:auto">
+        <span>读屏与测试都可以只盯这张表</span>
+        <span class="tiny mono">ui = reactive({ … })</span>
+        <span class="tag tag--on">单一事实来源</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- 11 · 天空的 60fps 旁路                                         -->
+  <!-- ============================================================== -->
+  <section class="slide" data-title="天空绘制旁路" data-notes="解释为什么太阳/月亮不放进 reactive：每帧数值与结构状态的分离。">
+    <div class="kicker">PERFORMANCE BOUNDARY</div>
+    <h2>唯一的高频旁路：sky paint → CSS 变量</h2>
+    <div class="body">
+      <div class="cols c-3-2">
+        <div>
+          <pre class="code">// engine/sky.js —— 只算，不碰 DOM
+this.paint = {
+  bodies: { sun: { x, y, disc, halo, golden, active,
+                   pressing, below, hidden, haloColor }, moon: {…} },
+  arc:    { above: 'M …', below: 'M …', visible },
+  night, stars, golden,
+  glow:   { x, y, opacity },
+  rays:   { x, y, opacity, rgb },
+  clouds: { hi, lo, warm },
+  ink:    { ink, soft, faint, line },
+  theme,  time: { pct, label },
+  viewWidth, viewHeight
+};
+sky.emit();   <em>// 每帧一次</em>
+
+// app/lib/sky-painter.js —— 唯一写样式的地方
+style(glow, '--glow-x', pct(state.glow.x));
+style(root, '--ink', state.ink.ink);
+opacity(nightVeil, state.night);
+cls(sun.root, 'is-active', body.active);</pre>
+        </div>
+        <div>
+          <div class="card">
+            <h3>为什么不做成响应式</h3>
+            <ul class="clean">
+              <li>位置/透明度/墨色每帧变，<span class="mono">reactive</span> 会带来无意义的依赖追踪。</li>
+              <li>Vue 的调度器只为“结构/状态”服务；逐帧数值交给 CSS 变量更直接。</li>
+              <li>所有写入集中在一个文件、一个快照；易审查、易关停。</li>
+            </ul>
+          </div>
+          <div class="card card--dark" style="margin-top:12px">
+            <h3>边界规则</h3>
+            <p class="small">高频（每帧）：<b>paint → CSS 变量</b><br />
+            中频（&gt;50ms）：<b>store 字段</b>（风、录制秒数）<br />
+            低频（事件）：<b>模板重渲染</b>（能力、胶片、明信片）</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="cols c3" style="margin-top:auto">
+        <div class="bracket"><span>去重</span><span>WeakMap 缓存，相同字符串不写</span></div>
+        <div class="bracket"><span>结构</span><span>DOM 仍由 Vue 渲染</span></div>
+        <div class="bracket"><span>可回退</span><span>删掉 painter 即可关停</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- 12 · 组件清单                                                  -->
+  <!-- ============================================================== -->
+  <section class="slide" data-title="组件清单" data-notes="挑 3 个组件现场打开：AbilityPanel（最简单）、FilmPanel（列表+媒体）、CelestialBody（事件+无障碍）。">
+    <div class="kicker">COMPONENTS</div>
+    <h2>19 个组件：每个只做一件事</h2>
+    <div class="body">
+      <div class="cols c2">
+        <div>
+          <table>
+            <thead><tr><th>组件</th><th>职责</th><th>输入</th></tr></thead>
+            <tbody>
+              <tr><td>SceneStage</td><td>两个 WebGL canvas，引擎生命周期</td><td>—</td></tr>
+              <tr><td>AtmosphereLayer</td><td>夜/金纱、星野、光束、暗角、云</td><td>paint</td></tr>
+              <tr><td>CelestialLayer</td><td>日月与轨道弧的容器</td><td>—</td></tr>
+              <tr><td>CelestialBody</td><td>指针捕获、键盘滑块、ARIA</td><td>type</td></tr>
+              <tr><td>Masthead</td><td>标题</td><td>—</td></tr>
+              <tr><td>HintBar</td><td>首屏操作提示（随能力更新）</td><td>hint</td></tr>
+              <tr><td>WindMeter</td><td>风力条</td><td>wind</td></tr>
+              <tr><td>AbilityPanel</td><td>能力胶囊与计数</td><td>abilities</td></tr>
+              <tr><td>SoundToggle</td><td>声音开/关</td><td>sound</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div>
+          <table>
+            <thead><tr><th>组件</th><th>职责</th><th>输入</th></tr></thead>
+            <tbody>
+              <tr><td>ContextHint</td><td>靠近地标 / 取景时的上下文提示</td><td>context</td></tr>
+              <tr><td>Toast</td><td>一次性反馈</td><td>toast</td></tr>
+              <tr><td>RecBadge</td><td>REC + 秒数</td><td>record</td></tr>
+              <tr><td>PostcardStrip</td><td>五张明信片状态</td><td>postcards</td></tr>
+              <tr><td>FilmButton</td><td>胶片卷入口与计数</td><td>film.count</td></tr>
+              <tr><td>FilmPanel</td><td>照片 / 短片缩略图与下载</td><td>film.items</td></tr>
+              <tr><td>JourneyEnd</td><td>集齐五张的片尾</td><td>journeyEnd</td></tr>
+              <tr><td>TouchPad</td><td>摇杆 + 上下文按钮</td><td>mobile</td></tr>
+              <tr><td>DebugPanel</td><td>?debug 指标</td><td>debug</td></tr>
+              <tr><td>NoWebglNotice</td><td>WebGL / file:// 说明</td><td>noWebgl</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="bracket" style="margin-top:auto">
+        <span>合计</span>
+        <span>4 个场景/天图层 + 15 个 HUD + App + runtime + store + painter</span>
+        <span class="tag">app 层 1 052 行</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- 13 · 引擎模块地图                                              -->
+  <!-- ============================================================== -->
+  <section class="slide" data-title="引擎模块地图">
+    <div class="kicker">ENGINE MAP</div>
+    <h2>引擎模块：29 个文件，按“自然对象”组织</h2>
+    <div class="body">
+      <div class="cols c3">
+        <div class="card">
+          <h3>地形与植被</h3>
+          <p class="tiny mono">world.js · vegetation.js · meadow.js<br />tree-assets.js · windmill-asset.js<br />landmarks.js · journey-assets.js</p>
+          <p class="small">210m 高度场、三层山脊、5 种草 / 4 种花、五个地标的真实几何。</p>
+        </div>
+        <div class="card">
+          <h3>风与生命</h3>
+          <p class="tiny mono">wind.js · dandelion.js<br />dandelion-field.js · fireflies.js<br />birds.js · clouds.js</p>
+          <p class="small">局部风场 + 自然风；蒲公英的茎、花头、种子；夜里的萤火虫与远处的鸟群。</p>
+        </div>
+        <div class="card">
+          <h3>观看与时间</h3>
+          <p class="tiny mono">sky.js · post.js · orbit.js<br />player.js · film-camera.js</p>
+          <p class="small">日月同弧、色调映射、第三人称环绕、风滚草、可安放的胶片相机。</p>
+        </div>
+      </div>
+      <div class="cols c3">
+        <div class="card">
+          <h3>进度与叙事</h3>
+          <p class="tiny mono">abilities.js · anchors.js · film-archive.js</p>
+          <p class="small">能力开关与最大株数、五个挂点的判定与提示、明信片与胶片卷。</p>
+        </div>
+        <div class="card">
+          <h3>捕获与声音</h3>
+          <p class="tiny mono">capture.js · audio.js</p>
+          <p class="small">1920×1080 照片、5s / 720p 短片、程序化风底噪与提示音。</p>
+        </div>
+        <div class="card">
+          <h3>编排与调试</h3>
+          <p class="tiny mono">experience.js · mobile-controls.js<br />dev-console.js</p>
+          <p class="small">场景装配、输入分发、循环；触屏状态机；只在 ?dev=1 出现的调参面板。</p>
+        </div>
+      </div>
+      <div class="bracket" style="margin-top:auto">
+        <span>原则</span>
+        <span>每个模块只认识自己的上游：world 不认识 UI，sky 不认识 DOM，anchors 不认识 Vue。</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- 14 · 迁移对照                                                  -->
+  <!-- ============================================================== -->
+  <section class="slide" data-title="迁移前后对照" data-notes="强调行为等价：同样的交互，全部有测试兜底。">
+    <div class="kicker">MIGRATION</div>
+    <h2>迁移对照：同样的行为，换一种写法</h2>
+    <div class="body">
+      <table>
+        <thead><tr><th>能力</th><th>重构前</th><th>重构后</th></tr></thead>
+        <tbody>
+          <tr><td><strong>能力面板</strong></td><td>replaceChildren + createElement 造 7 个胶囊</td><td><span class="mono">v-for="item in ui.abilities.items"</span></td></tr>
+          <tr><td><strong>明信片条</strong></td><td>每次刷新重建 DOM</td><td><span class="mono">v-for</span> + <span class="mono">:class="{ 'is-on': card.on }"</span></td></tr>
+          <tr><td><strong>胶片卷</strong></td><td>手工创建 figure / video / a[download]</td><td><span class="mono">v-for</span> + <span class="mono">v-if="item.type === 'video'"</span></td></tr>
+          <tr><td><strong>Toast</strong></td><td>classList.add('is-visible') + setTimeout</td><td><span class="mono">:class</span> + store.showToast()</td></tr>
+          <tr><td><strong>首屏提示</strong></td><td>hint.textContent = parts.join(...)</td><td><span class="mono">{{ ui.hint.mouse }}</span></td></tr>
+          <tr><td><strong>触屏按钮</strong></td><td>mobile-controls 里 setAttribute('hidden')</td><td>TouchPad 按 <span class="mono">ui.mobile</span> 渲染</td></tr>
+          <tr><td><strong>日月</strong></td><td>sky.js 写 left/top/class/style</td><td>SkyPainter 写 CSS 变量与 class</td></tr>
+          <tr><td><strong>body 状态</strong></td><td>引擎 classList.add('ready')</td><td>App 监听 boolean → 切 class</td></tr>
+          <tr><td><strong>镜头拖拽光标</strong></td><td>orbit.js 直接改 body class</td><td>onDraggingChange → store → App</td></tr>
+        </tbody>
+      </table>
+      <div class="cols c3" style="margin-top:auto">
+        <div class="stat"><b>1 → 2</b><span>入口拆为 experience + film-archive</span></div>
+        <div class="stat"><b>20+ → 0</b><span>入口中的 DOM 查询</span></div>
+        <div class="stat"><b>1 → 19</b><span>界面单元（可独立阅读）</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- 15 · 分节：功能                                                -->
+  <!-- ============================================================== -->
+  <section class="slide divider" data-title="分节 · 功能实现">
+    <div class="kicker">PART 02</div>
+    <div class="index">02</div>
+    <h2>功能实现：风、种子、时间、地标</h2>
+    <p class="lede">逐项说明“看得见的效果”背后在算什么，以及为什么这样算。</p>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- 16 · 局部风场                                                  -->
+  <!-- ============================================================== -->
+  <section class="slide" data-title="局部风场" data-notes="可以现场滑动鼠标演示。解释 trail 的生命期与“只吹经过区域”。">
+    <div class="kicker">MECHANISM 01</div>
+    <h2>局部风场：风只作用在手指经过的地方</h2>
+    <div class="body">
+      <div class="cols c-3-2">
+        <div>
+          <pre class="code">// 1 · 记录屏幕路径：每段带“当时的空气速度”
+trail.push({ ax, ay, bx, by, age: 0,
+             airX, airY, airZ });   <em>// 0.45s 后消失</em>
+
+// 2 · 查询某点的空气
+//    取附近 trail 段中影响最大的一段
+air = segmentAir * 径向衰减(radiusPx)
+
+// 3 · 屏幕速度 → 世界方向
+right = camera.right; up = camera.up;
+dirWorld = right * vx + up * (-vy);
+
+// 4 · 风速 → 强度（带平滑与反向闸门）
+strength += (raw - strength) * (1 - exp(-attack * dt));</pre>
+          <p class="tiny" style="margin-top:8px">
+            <span class="mono">radiusPx</span> 随屏幕短边缩放并夹在 165–520 px；草另有一层更小、会滞后跟随的草地风场。
+          </p>
+        </div>
+        <div>
+          <ul class="clean">
+            <li><strong>不是全屏风。</strong>指针离开后余流只保留 0.45 s。</li>
+            <li><strong>风力互相叠加。</strong>手势风、风滚草风源、自然风各自独立，采样时取最强源。</li>
+            <li><strong>草更“钝”。</strong>方向低通、强度慢滤、反向时压到约 15%，避免左右抖动。</li>
+            <li><strong>种子更“灵”。</strong>在风区里响应快，离开后靠惯性继续飞。</li>
+          </ul>
+          <div class="card" style="margin-top:10px">
+            <h3>一个可观察的因果</h3>
+            <p class="small">从蒲公英上滑过：花头抖、种子被扯下；在别处滑过：只有草和花粉动，花头完全不受影响。</p>
+          </div>
+        </div>
+      </div>
+      <div class="cols c4" style="margin-top:auto">
+        <div class="bracket"><span>输入</span><span>pointermove 路径</span></div>
+        <div class="bracket"><span>映射</span><span>屏幕 → 世界</span></div>
+        <div class="bracket"><span>衰减</span><span>径向 + 时间</span></div>
+        <div class="bracket"><span>叠加</span><span>取最强源</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- 17 · 自然风                                                    -->
+  <!-- ============================================================== -->
+  <section class="slide" data-title="自然风与草浪" data-notes="说明自然风是“背景”，不能强到抢走因果感。">
+    <div class="kicker">MECHANISM 02</div>
+    <h2>自然风：让草地“呼吸”，但不抢走手势</h2>
+    <div class="body">
+      <div class="cols c3">
+        <div class="card">
+          <h3>三个慢周期</h3>
+          <p class="small">约 60s / 26s / 11s 的正弦叠加，形成缓慢的强弱起伏。强度始终低于蒲公英自然脱种阈值。</p>
+          <p class="tiny mono" style="margin-top:8px">≈ 0.12 – 0.59 m/s</p>
+        </div>
+        <div class="card">
+          <h3>随机阵风</h3>
+          <p class="small">每隔 8–23 s 插入一次 2.8–7 s 的柔和阵风，强度与相位每次重新生成，避免可预测的循环。</p>
+          <p class="tiny mono" style="margin-top:8px">direction drift: 两个慢正弦</p>
+        </div>
+        <div class="card">
+          <h3>草叶表现</h3>
+          <p class="small">草与草毯的 shader 共用 <span class="mono">uStrength / uWind</span>；根部固定在实例位置，只有上段按圆弧弯曲。</p>
+          <p class="tiny mono" style="margin-top:8px">5 种草 × 3 种子变体 = 27 InstancedMesh</p>
+        </div>
+      </div>
+      <div class="cols c-2-3" style="margin-top:auto">
+        <div class="figure" style="padding:14px 16px">
+          <div class="tiny mono">风的三个来源</div>
+          <table style="margin-top:6px">
+            <tr><td>手势</td><td>短生命期的局部阵风</td></tr>
+            <tr><td>风滚草</td><td>移动/升空注入世界空间风源</td></tr>
+            <tr><td>自然</td><td>持续、缓慢、方向漂移</td></tr>
+          </table>
+        </div>
+        <div class="card card--dark">
+          <h3 style="margin-top:2px">手感上的取舍</h3>
+          <p class="small">自然风不能强到“自己把种子吹走”，否则玩家会失去“我起了风”的因果感；它只负责让静止画面仍然活着。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- 18 · 蒲公英生命周期                                            -->
+  <!-- ============================================================== -->
+  <section class="slide" data-title="蒲公英生命周期" data-notes="现场种一株，等 0.8s 长出，说明为什么不做瞬间出现。">
+    <div class="kicker">MECHANISM 03</div>
+    <h2>一朵蒲公英的一生：0.8 秒长出，70 秒告别</h2>
+    <div class="body">
+      <div class="cols c-3-2">
+        <div>
+          <div class="flow" style="margin-bottom:14px">
+            <div class="flow-node"><b>0.0s</b>点击草地<br />落点校验</div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-node"><b>0.6–0.9s</b>从地下顶出<br />尺寸 ×0.8–1.2</div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-node"><b>≈20s</b>花头从空到满<br />被吹掉会补回</div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-node"><b>50–70s</b>随机寿命<br />淡出</div>
+          </div>
+          <pre class="code">// dandelion-field.js
+spawnAt(point) {
+  size = 0.8 + random * 0.4;
+  grow   = 0.6 + random * 0.3;   <em>// 秒</em>
+  life   = 50 + random * 20;     <em>// 秒</em>
+  <b>// 超过上限时移除最老的一株</b>
+}
+
+// 落点限制：r ≤ 118m，高度 ≤ 30m，坡度 ≤ 0.44
+if (r > 118 || point.y > 30) return;
+if (world.slopeAt(x, z) > 0.44) return;</pre>
+        </div>
+        <div>
+          <ul class="clean">
+            <li><strong>不是瞬间出现。</strong>生长有 0.6–0.9s 的过渡，避免“贴图弹出”。</li>
+            <li><strong>只有花头种子会张开。</strong>茎、叶、花托保持稳定，种子按各自节奏脱离。</li>
+            <li><strong>空花头会补满。</strong>整头从空到满约 20s，飞行中的种子可比茎多停留一会儿。</li>
+            <li><strong>上限是体验的一部分。</strong>1 → 3 → 6 → 15 随能力增长，防止画面被塞满。</li>
+          </ul>
+          <div class="card" style="margin-top:10px">
+            <h3>种植判定</h3>
+            <p class="small">短按（&lt;650ms、位移&lt;8px、非多指）才种植；拖动镜头、点击 UI、双手缩放都不会误种。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- 19 · 种子惯性                                                  -->
+  <!-- ============================================================== -->
+  <section class="slide" data-title="种子惯性" data-notes="现场快速挥手，种子继续飘；再挥手还能改变轨迹。">
+    <div class="kicker">MECHANISM 04</div>
+    <h2>种子的惯性：风改变它，而不是“摆到”目标位置</h2>
+    <div class="body">
+      <div class="cols c-3-2">
+        <div>
+          <pre class="code">// dandelion.js · 每帧只做一件事：
+// 向“自己所在位置”的局部空气速度靠拢
+exposure = localSpeed / maxSpeed;
+response = 0.34 + 1.55 * exposure;
+
+vel += (localAir - vel) *
+       (1 - exp(-response * dt));
+
+<em>// 在风区：response 快，迅速被带走</em>
+<em>// 离开风区：response = 0.34/s，缓慢衰减</em>
+<em>// 还有轻微重力、空气摆动、飘落姿态</em></pre>
+          <p class="tiny" style="margin-top:8px">脱离瞬间继承一部分当地风速，并获得一个沿径向的小踢腿。</p>
+        </div>
+        <div>
+          <ul class="clean">
+            <li><strong>个体差异。</strong>每颗离体种子锁定约 ±10% 的尺寸，并在 0.45s 内平滑过渡。</li>
+            <li><strong>层次感。</strong>同一阵风里的种子不再像同一张剪贴画复制。</li>
+            <li><strong>主茎会摆动。</strong>花托、绒球与仍在花头上的种子共用根部支点；已飞出的种子不受影响。</li>
+            <li><strong>影子贴地。</strong>茎摆动时影子不跟着离开地面。</li>
+          </ul>
+          <div class="card card--dark" style="margin-top:10px">
+            <h3>体验结果</h3>
+            <p class="small">快速划过后，种子会继续飘、慢慢减速；下一次手指经过附近，还能再次改变它们的轨迹。这让“风”有持续感，而不是一次性动画。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- 20 · 时间系统                                                  -->
+  <!-- ============================================================== -->
+  <section class="slide" data-title="时间系统" data-notes="现场演示旋转到黄昏、夜晚；用键盘 ← → 说明无障碍。">
+    <div class="kicker">MECHANISM 05</div>
+    <h2>时间：日月在同一条弧上，光体本身就是手柄</h2>
+    <div class="body">
+      <div class="cols c-3-2">
+        <div>
+          <pre class="code">// 一条倾斜的大圆：东升、南中、西落，月亮在对侧
+a = (t - 0.25) * TAU;
+dir = (-sin a,  cos a * sin 30°,  -cos a * cos 30°)
+
+// 0 日出 · 0.25 正午 · 0.5 日落 · 0.75 午夜 · 1 回到日出
+// 一轮 240s；拖动时暂停，松手后停 2.5s 再继续
+
+// 3D 模式：天体是投影，不是固定屏幕坐标
+// 因此镜头抬起/放下时，日月会自然进出画面</pre>
+          <p class="tiny" style="margin-top:8px">没有显式按钮；拖动 / 键盘（← →、Home、End）都可操作。</p>
+        </div>
+        <div>
+          <ul class="clean">
+            <li><strong>同步的不止天体。</strong>太阳/月亮光晕、夜色、金色光、星空、三盏灯、草地 uniform、绒毛颜色、阴影强度、界面文字颜色。</li>
+            <li><strong>可以拖到地平线以下。</strong>时间继续推进，另一侧光体升起；地下只保留淡影子手柄。</li>
+            <li><strong>不打断你的调光。</strong>拖动时暂停自动流逝，松手后 2.5s 再恢复。</li>
+            <li><strong>无障碍。</strong><span class="mono">role="slider"</span>，<span class="mono">aria-valuetext="时间 40%，午后"</span>。</li>
+          </ul>
+        </div>
+      </div>
+      <div class="cols c4" style="margin-top:auto">
+        <div class="bracket"><span>日出</span><span>0.00</span></div>
+        <div class="bracket"><span>正午</span><span>0.25</span></div>
+        <div class="bracket"><span>日落</span><span>0.50</span></div>
+        <div class="bracket"><span>午夜</span><span>0.75</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- 21 · 能力与地标                                                -->
+  <!-- ============================================================== -->
+  <section class="slide" data-title="能力与地标判定" data-notes="按表格讲触发条件；强调测试可以程序化触发同样条件。">
+    <div class="kicker">MECHANISM 06</div>
+    <h2>五个地标：每个解谜都有“可读的条件”</h2>
+    <div class="body">
+      <table>
+        <thead><tr><th>地标</th><th>坐标</th><th>触发条件</th><th>解锁</th><th>明信片</th></tr></thead>
+        <tbody>
+          <tr><td><strong>老树</strong></td><td class="mono">-34, -22</td><td>在半径 9m 内种下一株蒲公英</td><td>相机</td><td>树下的风</td></tr>
+          <tr><td><strong>风车</strong></td><td class="mono">42, -40</td><td>靠近按 E；三个风眼各有一株活蒲公英</td><td>多株</td><td>风车的回声</td></tr>
+          <tr><td><strong>上升气流</strong></td><td class="mono">42, -34</td><td>靠近按 E（需风车已转动）</td><td>起飞</td><td>塔顶的风</td></tr>
+          <tr><td><strong>枯泉</strong></td><td class="mono">0, 45</td><td>靠近按 E</td><td>恢复</td><td>枯泉的回声</td></tr>
+          <tr><td><strong>北坡日晷</strong></td><td class="mono">-9, 114.5</td><td>解锁时间后，站在 12m 内把时间拨到 0.455–0.525</td><td>时间</td><td>山谷的尽头</td></tr>
+        </tbody>
+      </table>
+
+      <div class="cols c3" style="margin-top:auto">
+        <div class="card">
+          <h3>状态机在 anchors.js</h3>
+          <p class="small">每个挂点保存 <span class="mono">solved</span>、前置能力、前置挂点、提示语与 toast。UI 只读结果。</p>
+        </div>
+        <div class="card">
+          <h3>进度可恢复</h3>
+          <p class="small"><span class="mono">wind-passing.progress.v1</span>：能力、挂点状态、明信片。刷新后继续，<span class="mono">?reset=1</span> 清空。</p>
+        </div>
+        <div class="card">
+          <h3>判定可测</h3>
+          <p class="small">测试直接驱动“种一株 → notifyPlant”和“拨到刻线”，并断言能力面板 / 明信片 / toast 的界面结果。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- 22 · 胶片与明信片                                              -->
+  <!-- ============================================================== -->
+  <section class="slide" data-title="胶片相机与明信片" data-notes="现场按 C→安放→P，展示胶片卷缩略图与下载。">
+    <div class="kicker">MECHANISM 07</div>
+    <h2>胶片相机：把“看过的风景”变成可带走的明信片</h2>
+    <div class="body">
+      <div class="cols c2">
+        <div>
+          <ul class="clean">
+            <li><strong>C</strong> 进入/退出取景；<strong>X</strong> 重新安放；拖动瞄准；滚轮变焦；<strong>P</strong> 拍照；<strong>V</strong> 录 5s；<strong>Esc</strong> 返回。</li>
+            <li>照片 <strong>1920×1080 PNG</strong>；短片 <strong>1280×720 / 5s</strong>，VP9/VP8 → MP4 回退。</li>
+            <li>设备太慢、编码器无输出 → 自动改存一张照片，并提示。</li>
+            <li>每张照片按“最近的已解锁地标”归属明信片；重复不重复计数。</li>
+            <li>胶片卷最多保留 <strong>12</strong> 条，可逐条下载；只保留本次会话。</li>
+          </ul>
+          <div class="card" style="margin-top:10px">
+            <h3>采集细节</h3>
+            <p class="small">快门先强制渲染当前相机的一帧，再复制 WebGL 画布，避免“拍到上一帧”；萤火虫层单独合成，夜色遮罩按天空状态重绘。</p>
+          </div>
+        </div>
+        <div>
+          <pre class="code">// capture.js · 照片
+drawSky(ctx, width, height, sky);
+ctx.drawImage(renderer.domElement, 0, 0, width, height);
+ctx.drawImage(fireflyCanvas, 0, 0, width, height);
+drawVeils(ctx, width, height, sky);
+drawVignette(ctx, width, height);
+
+// film-archive.js · 归档
+addCapture(blob, filename, { type, anchor, cardTitle })
+refreshPostcards(anchors)   <em>// 5 张 chip 的点亮状态</em>
+checkJourneyEnd(anchors)    <em>// 集齐 → 片尾联系表</em></pre>
+          <div class="grid" style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px">
+            <div class="tag tag--on">相机</div><div class="tag tag--on">多株</div>
+            <div class="tag tag--on">起飞</div><div class="tag tag--on">恢复</div>
+            <div class="tag tag--on">时间</div><div class="tag tag--gold">5 张明信片</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- 23 · 分节：体验                                                -->
+  <!-- ============================================================== -->
+  <section class="slide divider" data-title="分节 · 用户体验">
+    <div class="kicker">PART 03</div>
+    <div class="index">03</div>
+    <h2>用户体验：手势、反馈、降级</h2>
+    <p class="lede">“好玩”往往不是多加功能，而是少一点误触、多一点可预期。</p>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- 24 · 手势分区                                                  -->
+  <!-- ============================================================== -->
+  <section class="slide" data-title="手势分区与防误触" data-notes="这是体验的核心：拖动不种植、UI 不种植、双手不误触。">
+    <div class="kicker">UX 01</div>
+    <h2>手势分区：风、视角、移动互不打架</h2>
+    <div class="body">
+      <div class="cols c2">
+        <div>
+          <table>
+            <thead><tr><th>动作</th><th>结果</th><th>防误触规则</th></tr></thead>
+            <tbody>
+              <tr><td>鼠标滑过草地</td><td>局部风</td><td>不必按住；0.45s 余流</td></tr>
+              <tr><td>左键拖动</td><td>环绕 / 俯仰</td><td>拖动期间风场暂停，松手恢复</td></tr>
+              <tr><td>滚轮</td><td>拉近 / 拉远</td><td>夹在 4–180m</td></tr>
+              <tr><td>点击草地</td><td>种一株</td><td>短按 &lt;650ms、位移 &lt;8px、非多指</td></tr>
+              <tr><td>点击 UI</td><td>按钮动作</td><td>只监听 canvas，不会穿透成种植</td></tr>
+              <tr><td>按住日月</td><td>拨动时间</td><td>阻止冒泡，不触发风；拖动结束停 2.5s</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div>
+          <div class="card">
+            <h3>“不打架”的三条实现</h3>
+            <ul class="clean">
+              <li><span class="mono">wind.enabled = false</span> 只在镜头拖拽期间；结束后立即恢复。</li>
+              <li>种植判定记录 <span class="mono">pointerdown</span> 的时间戳与位移，而不是“是否触发 click”。</li>
+              <li>取景模式下 canvas 归相机所有，点击用于安放/瞄准，永不种植。</li>
+            </ul>
+          </div>
+          <div class="card card--dark" style="margin-top:12px">
+            <h3>被测试锁定的行为</h3>
+            <p class="small">自动化用例显式验证：点击声音按钮后 <span class="mono">field.count</span> 不变；拖动镜头期间风场暂停；取景中按 P 只拍照不种植。</p>
+          </div>
+        </div>
+      </div>
+      <div class="cols c4" style="margin-top:auto">
+        <div class="bracket"><span>风</span><span>悬停 / 轻扫</span></div>
+        <div class="bracket"><span>视角</span><span>拖动 / 捏合</span></div>
+        <div class="bracket"><span>移动</span><span>WASD / 摇杆</span></div>
+        <div class="bracket"><span>动作</span><span>点击 / 按钮</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- 25 · 移动端                                                    -->
+  <!-- ============================================================== -->
+  <section class="slide" data-title="移动端体验" data-notes="用 DevTools 切换设备，演示摇杆与上下文按钮。">
+    <div class="kicker">UX 02</div>
+    <h2>移动端：左手移动，右手观看与行动</h2>
+    <div class="body">
+      <div class="cols c-3-2">
+        <div>
+          <ul class="clean">
+            <li><strong>左摇杆</strong>移动风滚草，摇杆手柄跟随手指并限制在 32% 半径内。</li>
+            <li><strong>右侧单指拖动</strong>环视 / 俯仰；<strong>双指捏合</strong>缩放。</li>
+            <li><strong>轻点草地</strong>种植；右下按钮随上下文出现：交互 / 相机 / 录制 / 升空 / 快门。</li>
+            <li><strong>安全区</strong>：所有固定控件使用 <span class="mono">env(safe-area-inset-*)</span>。</li>
+            <li><strong>横屏短屏</strong>：标题缩小、风力计隐藏、日月缩小、天体弧线压扁，避免被刘海挡住。</li>
+            <li><strong>性能降级</strong>：coarse 设备默认 5000 簇草、300 只萤火虫、DPR ≤ 1.6。</li>
+          </ul>
+        </div>
+        <div>
+          <div class="card">
+            <h3>按钮集合由引擎描述</h3>
+            <pre class="code" style="margin-top:8px">describe({ liftEnabled, cameraEnabled,
+  cameraActive, placing, canInteract, recording })
+
+→ { enabled, liftEnabled, cameraEnabled,
+    cameraLabel, showShutter, showRecord,
+    recordLabel, showInteract }</pre>
+            <p class="tiny" style="margin-top:8px">Vue 只负责画出来，因此桌面 / 触屏的显示逻辑只有一份。</p>
+          </div>
+        </div>
+      </div>
+      <div class="cols c2" style="margin-top:auto">
+        <div>
+          <div class="phone">
+            <div class="phone__screen"></div>
+            <div class="phone__land"></div>
+            <div class="phone__sun"></div>
+            <div class="phone__meter"><i></i></div>
+            <div class="phone__kicker">TARAXACUM · 等风</div>
+            <div class="phone__title">等风来</div>
+            <div class="phone__chips">
+              <span class="phone__chip">地面</span>
+              <span class="phone__chip">3 株</span>
+              <span class="phone__chip is-on">相机</span>
+              <span class="phone__chip is-on">起飞</span>
+            </div>
+            <div class="phone__stick"><i></i></div>
+            <div class="phone__btns">
+              <b>交互</b><b>相机</b>
+              <b>录制</b><b class="big">升空</b>
+              <b class="shutter">快门</b>
+            </div>
+            <div class="phone__hint">轻点草地 · 种植 · 双指 · 缩放</div>
+          </div>
+          <p class="tiny mono" style="margin-top:6px">竖屏 · 左手移动 / 右手环视 · 上下文按钮</p>
+        </div>
+        <div>
+          <div class="phone phone--land">
+            <div class="phone__screen"></div>
+            <div class="phone__land"></div>
+            <div class="phone__sun"></div>
+            <div class="phone__kicker">TARAXACUM · 等风</div>
+            <div class="phone__title">等风来</div>
+            <div class="phone__stick"><i></i></div>
+            <div class="phone__btns">
+              <b>交互</b><b>相机</b>
+              <b>录制</b><b class="big">升空</b>
+              <b class="shutter">快门</b>
+            </div>
+          </div>
+          <p class="tiny mono" style="margin-top:6px">横屏短屏 · 风力计隐藏 / 安全区 / 压缩 HUD</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- 26 · 引导与反馈                                                -->
+  <!-- ============================================================== -->
+  <section class="slide" data-title="引导与反馈系统" data-notes="从“第一次进入”到“解锁/拍照/完成”的反馈链路。">
+    <div class="kicker">UX 03</div>
+    <h2>反馈分层：不打断，但绝不让你猜</h2>
+    <div class="body">
+      <div class="cols c3">
+        <div class="card">
+          <h3>① 首屏提示</h3>
+          <p class="small">屏幕底部的操作提示随能力增长逐条追加；首次交互后 1.6s 停留 + 1.2s 淡出，不遮挡画面。</p>
+          <p class="tiny mono" style="margin-top:6px">WASD · 拖动 · 滚轮 · 点击</p>
+        </div>
+        <div class="card">
+          <h3>② 上下文提示</h3>
+          <p class="small">靠近地标时出现“在附近种下一株蒲公英”“E · 唤醒种子合唱”“三个风眼 · 2/3”；取景时变为“P · 拍照”。</p>
+          <p class="tiny mono" style="margin-top:6px">只在变化时写入 store</p>
+        </div>
+        <div class="card">
+          <h3>③ 一次性反馈</h3>
+          <p class="small">Toast 负责解锁、明信片、录制完成、错误提示；2.8s 自动消失，可被下一条覆盖。</p>
+          <p class="tiny mono" style="margin-top:6px">role="status" aria-live="polite"</p>
+        </div>
+      </div>
+      <div class="cols c2">
+        <div>
+          <ul class="clean">
+            <li><strong>能力胶囊</strong>：地面 / N 株 / 相机 / 多株 / 起飞 / 恢复 / 时间，已解锁高亮。</li>
+            <li><strong>风力计</strong>：右下角细条，随手势 / 移动 / 自然风变化。</li>
+            <li><strong>REC</strong>：顶部红点 + 秒数，录制中持续更新。</li>
+          </ul>
+        </div>
+        <div>
+          <ul class="clean">
+            <li><strong>声音</strong>：风底噪随速度与高度变化；种植、快门、解锁、起降各有提示音；可一键静音。</li>
+            <li><strong>明信片条</strong>：五张 chip，点亮即归档，重复拍摄不会重复点亮。</li>
+            <li><strong>片尾联系表</strong>：集齐五张自动出现，可继续漫游。</li>
+          </ul>
+        </div>
+      </div>
+      <div class="bracket" style="margin-top:auto">
+        <span>原则</span>
+        <span>永久信息（能力 / 明信片 / 风力）常驻；过程信息（提示 / toast）短暂；错误信息给下一步动作。</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- 27 · 无障碍与降级                                              -->
+  <!-- ============================================================== -->
+  <section class="slide" data-title="无障碍与降级" data-notes="演示 Tab 聚焦日月，按 Home/End。说明已知未竟事项。">
+    <div class="kicker">UX 04</div>
+    <h2>无障碍与降级：不假设设备、不抛弃键盘</h2>
+    <div class="body">
+      <div class="cols c2">
+        <div>
+          <table>
+            <thead><tr><th>场景</th><th>处理</th></tr></thead>
+            <tbody>
+              <tr><td>键盘用户</td><td>日月 <span class="mono">role="slider" tabindex="0"</span>；← → 步进 0.04，Home / End 到日出 / 午夜</td></tr>
+              <tr><td>屏幕阅读器</td><td><span class="mono">aria-valuetext="时间 62%，入夜"</span> 随状态更新；状态区 <span class="mono">role="status"</span></td></tr>
+              <tr><td>无 WebGL</td><td>显示“这片草地需要 WebGL 才能生长”，隐藏画布</td></tr>
+              <tr><td>不支持 MediaRecorder</td><td>Toast 提示，录制自动改存照片</td></tr>
+              <tr><td>低端设备</td><td>coarse 画质、DPR 上限、萤火虫减量</td></tr>
+              <tr><td>静态截图</td><td><span class="mono">?still=N</span> 关闭动画与过渡；<span class="mono">?clean</span> 隐藏 HUD</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div>
+          <div class="card">
+            <h3>焦点可见</h3>
+            <p class="small"><span class="mono">:focus-visible</span> 会放大光晕，键盘用户能看到当前天体。</p>
+          </div>
+          <div class="card" style="margin-top:10px">
+            <h3>文案即引导</h3>
+            <p class="small">错误提示不给“失败”，而给下一步：“相机能力还未解锁 · 先去老树”“先按 C 进入取景”“把相机放在草地上”。</p>
+          </div>
+          <div class="card card--dark" style="margin-top:10px">
+            <h3>未竟事项</h3>
+            <p class="small">尚未加入 <span class="mono">prefers-reduced-motion</span> 的独立降级；当前用 <span class="mono">?still</span> 与低画质兜底。已列入后续路线。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- 28 · 性能策略                                                  -->
+  <!-- ============================================================== -->
+  <section class="slide" data-title="性能策略" data-notes="强调重构没有增加每帧成本；只有事件与低频重渲染。">
+    <div class="kicker">UX 05</div>
+    <h2>性能：把预算花在“看得见的地方”</h2>
+    <div class="body">
+      <div class="cols c4">
+        <div class="stat"><b>27</b><span>草的 InstancedMesh（5 种 × 3 变体）</span></div>
+        <div class="stat"><b>2</b><span>独立渲染层（场景 / 萤火虫）</span></div>
+        <div class="stat"><b>1/30</b><span>物理步长上限（与帧率解耦）</span></div>
+        <div class="stat"><b>0.012</b><span>风力计写入阈值</span></div>
+      </div>
+      <div class="cols c2">
+        <div>
+          <ul class="clean">
+            <li><strong>实例化 + LOD</strong>：草/花按距离分层，远处进入雾霭；远景草与花不参与近景密度。</li>
+            <li><strong>程序化资产</strong>：所有贴图（花瓣、绒毛、星野、地面）由代码绘制，无外部请求。</li>
+            <li><strong>萤火虫独立层</strong>：夜色遮罩之上的透明画布，不会被夜色压暗。</li>
+            <li><strong>自适应画质</strong>：<span class="mono">?quality=coarse</span> / 触屏自动 5000 簇、300 只萤火虫。</li>
+          </ul>
+        </div>
+        <div>
+          <ul class="clean">
+            <li><strong>时间与帧率解耦</strong>：昼夜按真实时间推进，物理 dt 被夹住，弱机不会“掉进慢动作”。</li>
+            <li><strong>写入节流</strong>：录制秒数 0.1s、调试 0.25s、风力 0.012 阈值。</li>
+            <li><strong>天空旁路</strong>：每帧只写一组 CSS 变量，Vue 不参与逐帧更新。</li>
+            <li><strong>可关闭后期</strong>：<span class="mono">?post=0</span> 用于对比 / 低端机。</li>
+          </ul>
+        </div>
+      </div>
+      <div class="bracket" style="margin-top:auto">
+        <span>观察</span>
+        <span>重构没有改变任何绘制预算；新增的框架成本被限制在“事件 + 低频重渲染”。</span>
+        <span class="tag tag--on">帧循环不经过 Vue</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- 29 · 测试方法                                                  -->
+  <!-- ============================================================== -->
+  <section class="slide" data-title="测试方法与覆盖" data-notes="说明为什么不用 Jest：这是 WebGL + 手势，必须在真实浏览器里跑。">
+    <div class="kicker">VERIFICATION</div>
+    <h2>验证：真实浏览器、真实输入、真实 DOM</h2>
+    <div class="body">
+      <div class="cols c-3-2">
+        <div>
+          <ul class="clean">
+            <li><strong>零依赖。</strong>没有 Node/npm：Python 启动静态服务器，直接通过 CDP 驱动本机 Chrome。</li>
+            <li><strong>真实输入。</strong>用 <span class="mono">Input.dispatchMouseEvent / dispatchTouchEvent / dispatchKeyEvent</span> 模拟手与键盘，而不是直接调函数。</li>
+            <li><strong>真实断言。</strong>既看 Vue 渲染出的 DOM（胶囊、toast、缩略图），也看引擎状态（株数、胶片数、时间）。</li>
+            <li><strong>真实异常。</strong>收集 <span class="mono">Runtime.exceptionThrown</span>、console.error 与网络错误，任何一条都判失败。</li>
+            <li><strong>软件 WebGL。</strong>SwiftShader 下帧率很低，因此用 <span class="mono">wait_frames()</span> 等待渲染循环，而不是 sleep 猜时间。</li>
+            <li><strong>一次一浏览器。</strong>每个用例独立启动 Chrome，避免上下文累积导致崩溃。</li>
+          </ul>
+        </div>
+        <div>
+          <div class="card">
+            <h3>测试夹具</h3>
+            <pre class="code" style="margin-top:8px">tools/e2e/
+├── cdp.py            <em># 200 行 CDP 驱动</em>
+├── serve.py          <em># 线程化静态服务器</em>
+└── test_experience.py
+                     <em># 12 组功能用例</em></pre>
+          </div>
+          <div class="card" style="margin-top:10px">
+            <h3>覆盖矩阵</h3>
+            <p class="tiny" style="line-height:1.9">
+              启动与首帧 · 风场与 HUD · 点击种植 · 老树解锁 · 相机安放 · 快门与胶片卷 ·
+              时间拖动 / 键盘 · 声音开关 · 五张明信片片尾 · 移动端摇杆 / 按钮 ·
+              ?debug 与 ?still · 响应式 · labs 预览
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- 30 · 测试结果与证据                                            -->
+  <!-- ============================================================== -->
+  <section class="slide" data-title="测试结果与结构示意" data-notes="先给结果数字，再讲环境限制：软件 WebGL 在 ~50 s 后会回收 GPU 进程；真实 GPU 上长套件可以跑完。示意图用于说明界面结构，不替代视觉验收。">
+    <div class="kicker">EVIDENCE</div>
+    <h2>结果：14 / 14 项功能断言通过</h2>
+    <div class="body">
+      <div class="cols c-3-2">
+        <div>
+          <table>
+            <thead><tr><th>组</th><th>关键断言</th><th>结果</th></tr></thead>
+            <tbody>
+              <tr><td>启动 / HUD</td><td>Vue 挂载、画布、天空变量、场景资产、胶囊与计数</td><td class="accent">PASS</td></tr>
+              <tr><td>风场</td><td>风速上升、风力计与 store 一致、首屏交互</td><td class="accent">PASS</td></tr>
+              <tr><td>种植</td><td>真实点击草地 +1 株（短按时序 &lt; 650ms）</td><td class="accent">PASS</td></tr>
+              <tr><td>解锁</td><td>老树 → 相机、1/5、胶囊、toast、快捷键</td><td class="accent">PASS</td></tr>
+              <tr><td>胶片卷</td><td>计数、缩略图、blob URL、下载链接</td><td class="accent">PASS</td></tr>
+              <tr><td>全尺寸运行</td><td>相机快门、时间拖动、声音、片尾、移动端、labs</td><td class="accent">PASS</td></tr>
+              <tr><td>环境</td><td>软件 WebGL 在 ~50 s 后回收 GPU 进程</td><td class="gold">限制</td></tr>
+            </tbody>
+          </table>
+          <p class="tiny" style="margin-top:8px">
+            低资源模式：760×480 · quality=low · post=0 · 单渲染进程 · nice 15 · 单次加载。
+            详细结果见 <span class="mono">docs/test-report.json</span> 与 <span class="mono">docs/TESTING.md</span>。
+          </p>
+        </div>
+        <div>
+          <div class="mock">
+            <div class="mock__label">HUD 层叠顺序（z-index）</div>
+            <div class="stack">
+              <span>天体 / 胶片卷 / 片尾 <b>6 · 9</b></span>
+              <span>触屏按钮 / 提示 / toast <b>6 · 8</b></span>
+              <span>萤火虫独立层 <b>5</b></span>
+              <span>场景画布 <b>1</b></span>
+              <span>氛围 / 夜纱 / 星野 <b>0–2</b></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="cols c3" style="margin-top:auto">
+        <div class="mock">
+          <div class="mock__label">胶片卷 · 会话内最多 12 条</div>
+          <div class="mock__film"><i></i><i></i><i></i></div>
+          <div class="mock__filmrow"><span>树下的风</span><span>下载 ↓</span></div>
+          <div class="mock__filmrow"><span>照片 1920×1080</span><span>短片 5s</span></div>
+        </div>
+
+        <div class="mock">
+          <div class="mock__label">片尾 · 五张明信片</div>
+          <div class="mock__end">
+            <small>FIVE POSTCARDS</small>
+            <strong>风经过的地方</strong>
+            <div class="row">
+              <span>树下的风</span><span>风车的回声</span><span>塔顶的风</span>
+              <span>枯泉的回声</span><span>山谷的尽头</span>
+            </div>
+            <em>继续漫游</em>
+          </div>
+        </div>
+
+        <div class="mock">
+          <div class="mock__label">时间弧线 · 日月同轨</div>
+          <div class="mock__arc">
+            <svg viewBox="0 0 200 90" aria-hidden="true">
+              <path d="M14 74 A 86 62 0 0 1 186 74" fill="none" stroke="rgba(65,83,74,0.35)" stroke-width="0.7" stroke-dasharray="2 6" />
+              <path d="M14 74 A 86 62 0 0 0 186 74" fill="none" stroke="rgba(65,83,74,0.18)" stroke-width="0.7" stroke-dasharray="1.5 9" />
+            </svg>
+            <span class="sun" style="left: 74%; top: 18%"></span>
+            <span class="moon" style="left: 14%; top: 58%"></span>
+          </div>
+          <div class="mock__times"><span>日出 0.00</span><span>正午 0.25</span><span>日落 0.50</span><span>午夜 0.75</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- 31 · 收益、代价与路线                                          -->
+  <!-- ============================================================== -->
+  <section class="slide" data-title="收益、代价与后续" data-notes="诚实讲代价：Vue 体积、无构建的模板体验、旁路契约。">
+    <div class="kicker">TRADE-OFFS</div>
+    <h2>收益、代价与下一步</h2>
+    <div class="body">
+      <div class="cols c3">
+        <div class="card">
+          <h3>收益</h3>
+          <ul class="clean">
+            <li>界面改动只改组件与 store，不碰场景。</li>
+            <li>场景层零 DOM，可被测试与复用。</li>
+            <li>触屏与桌面的显示逻辑合并为一处。</li>
+            <li>高频路径仍然只有一次样式写入。</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>代价</h3>
+          <ul class="clean">
+            <li>引入 Vue 运行时（157KB 生产包）与模板编译器。</li>
+            <li>没有构建流程，模板写在 JS 字符串里，IDE 支持弱于 SFC。</li>
+            <li>天空 paint 是一条需要维护的“旁路契约”。</li>
+            <li>测试依赖本机 Chrome + 软件 WebGL，速度慢。</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>下一步</h3>
+          <ul class="clean">
+            <li>可选引入 Vite + SFC，模板可近乎原样迁移。</li>
+            <li>增加 <span class="mono">prefers-reduced-motion</span> 与画质手动档。</li>
+            <li>把胶片卷持久化（IndexedDB）与分享链接。</li>
+            <li>扩展更多“风的地标”，把能力树变成可探索的地图。</li>
+          </ul>
+        </div>
+      </div>
+      <div class="cols c4" style="margin-top:auto">
+        <div class="bracket"><span>可读性</span><span>↑↑</span></div>
+        <div class="bracket"><span>可测性</span><span>↑↑</span></div>
+        <div class="bracket"><span>运行成本</span><span>≈</span></div>
+        <div class="bracket"><span>构建复杂度</span><span>↓（零构建）</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- 32 · 交付物与运行                                              -->
+  <!-- ============================================================== -->
+  <section class="slide" data-title="交付物与运行" data-notes="现场跑一遍命令；给出评审建议路线。">
+    <div class="kicker">DELIVERY</div>
+    <h2>交付物与运行方式</h2>
+    <div class="body">
+      <div class="cols c-2-3">
+        <div>
+          <div class="card">
+            <h3>运行</h3>
+            <pre class="code" style="margin-top:8px"># macOS：双击 启动.command
+# 或手动：
+cd dandelion
+python3 -m http.server 8000
+# → http://localhost:8000/</pre>
+            <p class="tiny" style="margin-top:8px">无需 npm；three / Vue 都在 vendor/，可离线。启动器会自动选端口，关闭终端窗口即停止。</p>
+          </div>
+          <div class="card" style="margin-top:10px">
+            <h3>测试</h3>
+            <pre class="code" style="margin-top:8px">python3 tools/serve_local.py 8124 .
+python3 tools/e2e/test_experience.py \
+  --url http://127.0.0.1:8124</pre>
+            <p class="tiny" style="margin-top:8px">报告：docs/test-report.json · 说明：docs/TESTING.md</p>
+          </div>
+        </div>
+        <div>
+          <table>
+            <thead><tr><th>文件</th><th>说明</th></tr></thead>
+            <tbody>
+              <tr><td class="mono">启动.command</td><td>双击运行的本地启动器</td></tr>
+              <tr><td class="mono">game.html</td><td>Vue 应用入口</td></tr>
+              <tr><td class="mono">src/engine/experience.js</td><td>场景 / 输入 / 循环</td></tr>
+              <tr><td class="mono">src/app/App.js</td><td>根组件与层叠顺序</td></tr>
+              <tr><td class="mono">src/app/state/ui.js</td><td>响应式 UI store</td></tr>
+              <tr><td class="mono">src/app/lib/sky-painter.js</td><td>天空绘制旁路</td></tr>
+              <tr><td class="mono">docs/ARCHITECTURE.md</td><td>架构说明（本文的展开版）</td></tr>
+              <tr><td class="mono">docs/presentation.html</td><td>本文档</td></tr>
+              <tr><td class="mono">docs/test-report.json</td><td>自动化测试结果</td></tr>
+              <tr><td class="mono">tools/e2e/</td><td>零依赖测试夹具</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="bracket" style="margin-top:auto">
+        <span>评审建议路线</span>
+        <span>先看「重构前 / 三层架构」→「风与种子」→「移动端与反馈」→「测试结果」→ 现场跑一遍。</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- 33 · 结尾                                                      -->
+  <!-- ============================================================== -->
+  <section class="slide cover" data-title="谢谢" data-notes="收尾：留 10 分钟问答，准备代码走读入口。">
+    <div class="kicker">END</div>
+    <h1 style="font-size: clamp(48px, 6vw, 88px)">谢谢 · 等风来</h1>
+    <div class="rule"></div>
+    <p class="lede" style="max-width: 30em">
+      风没有形状，我们只是让草、种子和时间替它说话。<br />
+      重构没有改变这句话，只是让说这句话的代码更好读。
+    </p>
+    <div class="meta">
+      <div><b>下一步</b>现场演示 · 代码走读 · 问题清单</div>
+      <div><b>入口</b><span class="mono">http://localhost:8000/</span></div>
+    </div>
+  </section>
+
+  <div class="notes-panel" id="notes"><h4>本页备注</h4><div id="notesBody"></div></div>
+  <div class="outline" id="outline"><h3>目录</h3><ol id="outlineList"></ol></div>
+</main>
+
+<script>
+(() => {
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const total = slides.length;
+  const stage = document.getElementById('stage');
+  const progress = document.getElementById('progress');
+  const page = document.getElementById('page');
+  const notes = document.getElementById('notes');
+  const notesBody = document.getElementById('notesBody');
+  const outline = document.getElementById('outline');
+  const outlineList = document.getElementById('outlineList');
+  const DEFAULT_NOTE = '用 ← → 翻页，O 打开目录，N 显示备注，P 打印。';
+
+  let index = 0;
+  const pad = (n) => String(n).padStart(2, '0');
+
+  slides.forEach((slide, i) => {
+    const item = document.createElement('li');
+    item.textContent = `${pad(i + 1)} · ${slide.dataset.title || ''}`;
+    item.addEventListener('click', () => {
+      outline.classList.remove('is-open');
+      go(i);
+    });
+    outlineList.appendChild(item);
+  });
+
+  function go(next, remember = true) {
+    index = Math.max(0, Math.min(total - 1, next));
+    slides.forEach((slide, i) => slide.classList.toggle('is-active', i === index));
+    progress.style.width = `${((index + 1) / total) * 100}%`;
+    page.textContent = `${pad(index + 1)} / ${pad(total)}`;
+    notesBody.textContent = slides[index].dataset.notes || DEFAULT_NOTE;
+    if (remember) history.replaceState(null, '', `#${index + 1}`);
+    const hash = `#${index + 1}`;
+    if (location.hash !== hash) history.replaceState(null, '', hash);
+  }
+
+  document.addEventListener('keydown', (event) => {
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    const key = event.key;
+    if (['ArrowRight', 'PageDown', ' ', 'Enter'].includes(key)) {
+      event.preventDefault();
+      go(index + 1);
+    } else if (['ArrowLeft', 'PageUp', 'Backspace'].includes(key)) {
+      event.preventDefault();
+      go(index - 1);
+    } else if (key === 'Home') {
+      event.preventDefault();
+      go(0);
+    } else if (key === 'End') {
+      event.preventDefault();
+      go(total - 1);
+    } else if (key === 'o' || key === 'O') {
+      outline.classList.toggle('is-open');
+    } else if (key === 'n' || key === 'N') {
+      notes.classList.toggle('is-open');
+    } else if (key === 'p' || key === 'P') {
+      window.print();
+    } else if (key === 'Escape') {
+      outline.classList.remove('is-open');
+      notes.classList.remove('is-open');
+    }
+  });
+
+  document.getElementById('prev').addEventListener('click', () => go(index - 1));
+  document.getElementById('next').addEventListener('click', () => go(index + 1));
+
+  let touchX = 0;
+  let touchY = 0;
+  stage.addEventListener('touchstart', (event) => {
+    const touch = event.changedTouches[0];
+    touchX = touch.clientX;
+    touchY = touch.clientY;
+  }, { passive: true });
+  stage.addEventListener('touchend', (event) => {
+    const touch = event.changedTouches[0];
+    const dx = touch.clientX - touchX;
+    const dy = touch.clientY - touchY;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.4) {
+      go(index + (dx < 0 ? 1 : -1));
+    }
+  }, { passive: true });
+
+  const fromHash = Number.parseInt(location.hash.replace('#', ''), 10);
+  go(Number.isFinite(fromHash) && fromHash > 0 ? fromHash - 1 : 0, false);
+})();
+</script>
+</body>
+</html>

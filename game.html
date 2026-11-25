@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#dfe0c6" />
+  <title>风灵山谷 · 游戏 Demo</title>
+  <meta
+    name="description"
+    content="环山谷地中的蒲公英。扮演风灵，在六处地标种下蒲公英，滚动送种，解锁飞行。"
+  />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23e9e1c6'/%3E%3Ccircle cx='16' cy='14' r='8' fill='%23fffaf0'/%3E%3Cpath d='M16 22v7' stroke='%237b934f' stroke-width='2'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="./src/styles/style.css?v=70" />
+
+  <script>
+    // Show a readable message if the scene fails to start.
+    (function () {
+      function report(msg, stack) {
+        var el = document.createElement('pre');
+        el.className = 'js-errors';
+        el.textContent = String(msg) + '\n' + (stack || '');
+        (document.body || document.documentElement).appendChild(el);
+      }
+      window.addEventListener('error', function (e) {
+        report(e.message, e.error && e.error.stack);
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        var reason = e.reason || {};
+        report('Promise: ' + (reason.message || reason), reason.stack);
+      });
+    })();
+  </script>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three.module.js",
+        "vue": "./vendor/vue.esm-browser.prod.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+
+  <noscript>
+    <div class="no-webgl is-shown">
+      <p>这片草地需要 JavaScript 与 WebGL 才能生长。</p>
+      <p class="no-webgl__sub">请在支持 WebGL 的浏览器中开启脚本后再来。</p>
+    </div>
+  </noscript>
+
+  <script>
+    (function () {
+      // Vue is loaded as an ES module, which browsers block on file://.
+      // A local server is enough; everything stays offline-capable.
+      if (location.protocol !== 'file:') return;
+      var tip = document.createElement('div');
+      tip.className = 'no-webgl is-shown';
+      tip.innerHTML =
+        '<p>请用本地服务器打开这片山谷</p>' +
+        '<p class="no-webgl__sub">Windows 双击 <code>Start.cmd</code>，macOS 双击 <code>启动.command</code> 即可；' +
+        '或在项目目录运行 <code>python3 -m http.server 8000</code> 后访问 ' +
+        '<code>http://localhost:8000/</code>。</p>';
+      document.body.appendChild(tip);
+    })();
+  </script>
+
+  <script type="module" src="./src/main.js?v=70"></script>
+</body>
+</html>

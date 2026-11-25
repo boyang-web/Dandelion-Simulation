@@ -7,7 +7,7 @@
   <title>远景档案 · 等风来</title>
   <meta name="description" content="远景资产库：阔叶树与风车。树的枝干、叶片卡、风属性与风车结构都可以近距离查看。" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23e9e1c6'/%3E%3Cpath d='M16 28V12M16 18l-6-5M16 16l6-6M11 23h10' stroke='%2357663c' stroke-width='1.6' fill='none'/%3E%3Ccircle cx='16' cy='10' r='4' fill='%23788c4f'/%3E%3C/svg%3E" />
-  <link rel="stylesheet" href="../css/vegetation.css" />
+  <link rel="stylesheet" href="../src/styles/vegetation.css" />
   <script>
     (function () {
       function report(msg, stack) {
@@ -46,7 +46,7 @@
       <footer class="rail__foot">
         <p>树 = 合并枝干 + 叶片卡 · 风属性</p>
         <p>风车 = 砖塔 / 画廊 / 格栅叶片</p>
-        <p><a href="./vegetation.html">← 植物档案</a> · <a href="../index.html">回到等风来</a></p>
+        <p><a href="./vegetation.html">← 植物档案</a> · <a href="../index.html">Demo 目录</a></p>
       </footer>
     </aside>
 
@@ -83,9 +83,9 @@
     (function () {
       if (location.protocol === 'file:') {
         document.write('<script src="../vendor/three.global.js"><\/script>');
-        document.write('<script src="../js/bundle-landmarks.js?v=30"><\/script>');
+        document.write('<script src="../src/engine/bundle-landmarks.js?v=57"><\/script>');
       } else {
-        document.write('<script type="module" src="../js/landmarks-preview.js?v=30"><\/script>');
+        document.write('<script type="module" src="../src/engine/landmarks-preview.js?v=57"><\/script>');
       }
     })();
   </script>

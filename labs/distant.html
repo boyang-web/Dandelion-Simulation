@@ -7,7 +7,7 @@
   <title>远景预览 · 等风来</title>
   <meta name="description" content="远景构造预览：太阳、月亮、云、山脊与鸟群，不含蒲公英与近景草地。" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23e9e1c6'/%3E%3Cpath d='M2 24l9-10 7 7 4-4 8 7z' fill='%23869a7c'/%3E%3C/svg%3E" />
-  <link rel="stylesheet" href="../css/style.css?v=30" />
+  <link rel="stylesheet" href="../src/styles/style.css?v=57" />
   <script>
     (function () {
       function report(msg, stack) {
@@ -73,7 +73,7 @@
   <header class="masthead">
     <p class="masthead__kicker">Distant study · 远景</p>
     <h1 class="masthead__title">山与云</h1>
-    <a class="masthead__sub" href="../index.html">← 返回主场景</a>
+    <a class="masthead__sub" href="../index.html">← Demo 目录</a>
   </header>
 
   <pre class="debug" id="debug" hidden></pre>
@@ -82,9 +82,9 @@
     (function () {
       if (location.protocol === 'file:') {
         document.write('<script src="../vendor/three.global.js"><\/script>');
-        document.write('<script src="../js/bundle-distant.js?v=30"><\/script>');
+        document.write('<script src="../src/engine/bundle-distant.js?v=57"><\/script>');
       } else {
-        document.write('<script type="module" src="../js/distant.js?v=30"><\/script>');
+        document.write('<script type="module" src="../src/engine/distant.js?v=57"><\/script>');
       }
     })();
   </script>

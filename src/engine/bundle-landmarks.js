@@ -17,7 +17,7 @@
     return exp;
   }
   defs["three"] = { deps: [], factory: function () { return { THREE: window.THREE }; } };
-defs["js/vegetation.js"] = { deps: ["three"], factory: function (d) {
+defs["src/engine/vegetation.js"] = { deps: ["three"], factory: function (d) {
       const THREE = d["three"].THREE;
 
 /* ------------------------------------------------------------------ */
@@ -855,9 +855,9 @@ function getVegetationAsset(id) {
 return { createVegetationMaterial, VEGETATION_ASSETS, ASSET_GROUPS, getVegetationAsset };
 } };
 
-defs["js/meadow.js"] = { deps: ["three", "js/vegetation.js"], factory: function (d) {
+defs["src/engine/meadow.js"] = { deps: ["three", "src/engine/vegetation.js"], factory: function (d) {
       const THREE = d["three"].THREE;
-      const { VEGETATION_ASSETS } = d["js/vegetation.js"];
+      const { VEGETATION_ASSETS } = d["src/engine/vegetation.js"];
 
 
 /* ------------------------------------------------------------------ */
@@ -1067,12 +1067,306 @@ function createTerrain() {
 }
 
 /* ------------------------------------------------------------------ */
+/* full valley: a real, encircling mountain heightfield                */
+/*                                                                     */
+/* The old scene stacked three billboard ridges behind a 210 m patch.  */
+/* This heightfield is one continuous bowl: a flat clearing, a gentle  */
+/* meadow floor, low foothills and an outer ring of mountains that      */
+/* climbs all the way to the mesh edge. Because the mountains are part */
+/* of the same surface, orbiting the camera gives real parallax,        */
+/* occlusion and slope shading instead of a flat cut-out.              */
+/* ------------------------------------------------------------------ */
+
+const VALLEY_RADIUS = 345;
+const VALLEY_CENTER = { x: 0, z: 0 };
+
+function floorWave(x, z) {
+  return (
+    0.55 * Math.sin(x * 0.070 + z * 0.030 + 1.15) +
+    0.26 * Math.sin(x * 0.170 - z * 0.055 + 2.30) +
+    0.09 * Math.sin(x * 0.430 + z * 0.230 + 4.00)
+  );
+}
+
+const FLOOR_ORIGIN = floorWave(0, 0);
+
+function valleyHeight(x, z) {
+  const r = Math.hypot(x, z);
+  const a = Math.atan2(x, z);
+
+  // The dandelion clearing stays flat; the rest of the floor rolls gently.
+  const clearing = smoothstep(0.55, 2.35, r);
+  const floor = (floorWave(x, z) - FLOOR_ORIGIN) * clearing;
+
+  // Two soft swells give the meadow some relief without blocking the view.
+  const moundA = 1.9 * Math.exp(-(
+    ((x + 34) / 24) ** 2 + ((z + 22) / 19) ** 2
+  ));
+  const moundB = 1.35 * Math.exp(-(
+    ((x - 42) / 30) ** 2 + ((z + 40) / 24) ** 2
+  ));
+  const mounds = (moundA + moundB) * clearing;
+
+  // A very shallow bowl: the floor lifts a little as it leaves the centre.
+  const bowl = 0.0002 * r * r;
+
+  // Rolling foothills. Their crest undulates around the valley.
+  const footWave = Math.max(
+    0.18,
+    0.52 + 0.30 * Math.sin(a * 3.0 + 1.3) + 0.18 * Math.sin(a * 7.0 + 2.6)
+  );
+  const foot = 8.5 * smoothstep(42, 105, r) * (
+    1 - 0.45 * smoothstep(115, 210, r)
+  ) * footWave;
+
+  // Main mountain ring. Different angular octaves give separate peaks and
+  // saddles, so the skyline reads as a range rather than a smooth crater.
+  const ridgeWave = Math.max(
+    0.24,
+    0.62 +
+    0.40 * Math.sin(a * 2.0 + 0.7) +
+    0.17 * Math.sin(a * 5.0 + 2.4) +
+    0.07 * Math.sin(a * 9.0 + 4.6)
+  );
+  // The range rises to a crest around r=232, then falls away on the far
+  // side. The camera sits inside the bowl, so the descending outer face is
+  // hidden behind the crest and the skyline keeps its gaps and saddles.
+  const ascend = Math.pow(smoothstep(105, 232, r), 1.25);
+  const descend = 1 - 0.92 * smoothstep(245, 345, r);
+  const ridge = 86 * ascend * descend * ridgeWave;
+
+  // Folds and spurs carved into the inner mountain face.
+  const relief = smoothstep(72, 150, r);
+  const detail = (
+    Math.sin(a * 7.0 + r * 0.055) +
+    0.55 * Math.sin(a * 13.0 - r * 0.031) +
+    0.30 * Math.sin(a * 21.0 + r * 0.017 + 1.7)
+  ) * (0.9 + 2.3 * smoothstep(120, 270, r)) * relief;
+
+  return floor + bowl + mounds + foot + ridge + detail;
+}
+
+/** Gradient magnitude of the valley surface — used to keep grass on
+ *  ground a plant could actually grow on. */
+function valleySlope(x, z) {
+  const e = 0.8;
+  const hx = (valleyHeight(x + e, z) - valleyHeight(x - e, z)) / (2 * e);
+  const hz = (valleyHeight(x, z + e) - valleyHeight(x, z - e)) / (2 * e);
+  return Math.hypot(hx, hz);
+}
+
+function buildValleyGeometry({ rings, segments, radius }) {
+  const positions = [0, valleyHeight(0, 0), 0];
+  const indices = [];
+
+  for (let i = 1; i <= rings; i++) {
+    const t = i / rings;
+    const r = radius * Math.pow(t, 1.55);
+    for (let j = 0; j < segments; j++) {
+      const a = (j / segments) * TAU;
+      const x = Math.sin(a) * r;
+      const z = Math.cos(a) * r;
+      positions.push(x, valleyHeight(x, z), z);
+    }
+  }
+
+  // centre fan
+  for (let j = 0; j < segments; j++) {
+    const cur = 1 + j;
+    const next = 1 + (j + 1) % segments;
+    indices.push(0, cur, next);
+  }
+
+  // ring quads
+  for (let i = 1; i < rings; i++) {
+    const inner = 1 + (i - 1) * segments;
+    const outer = 1 + i * segments;
+    for (let j = 0; j < segments; j++) {
+      const jn = (j + 1) % segments;
+      const a = inner + j;
+      const b = inner + jn;
+      const c = outer + j;
+      const d = outer + jn;
+      indices.push(a, c, b, b, c, d);
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function createValleyTerrain({ coarse = false } = {}) {
+  const geometry = buildValleyGeometry({
+    rings: coarse ? 100 : 150,
+    segments: coarse ? 176 : 248,
+    radius: VALLEY_RADIUS
+  });
+
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      uMeadowNear: { value: new THREE.Color('#47612f') },
+      uMeadowFar: { value: new THREE.Color('#8fa05f') },
+      uScrub: { value: new THREE.Color('#4d602c') },
+      uForest: { value: new THREE.Color('#2e4026') },
+      uRock: { value: new THREE.Color('#878173') },
+      uRockDark: { value: new THREE.Color('#4f4d42') },
+      uSun: { value: new THREE.Color('#f3dfae') },
+      uSunDir: { value: new THREE.Vector3(5.5, 8.5, 4.5).normalize() },
+      uSunStrength: { value: 1 },
+      uHaze: { value: new THREE.Color('#e7dfc3') },
+      uHazeAmount: { value: 1 },
+      uCloudShadow: { value: 0.9 },
+      uTime: { value: 0 }
+    },
+    vertexShader: /* glsl */ `
+      varying vec3 vWorld;
+      varying vec3 vN;
+      void main() {
+        vec4 world = modelMatrix * vec4(position, 1.0);
+        vWorld = world.xyz;
+        vN = normalize(mat3(modelMatrix) * normal);
+        gl_Position = projectionMatrix * viewMatrix * world;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uMeadowNear;
+      uniform vec3 uMeadowFar;
+      uniform vec3 uScrub;
+      uniform vec3 uForest;
+      uniform vec3 uRock;
+      uniform vec3 uRockDark;
+      uniform vec3 uSun;
+      uniform vec3 uSunDir;
+      uniform float uSunStrength;
+      uniform vec3 uHaze;
+      uniform float uHazeAmount;
+      uniform float uCloudShadow;
+      uniform float uTime;
+      varying vec3 vWorld;
+      varying vec3 vN;
+
+      ${NOISE_GLSL}
+      ${HAZE_GLSL}
+
+      // The valley is ~690 m across, so the old 0.021 fog exponent would
+      // erase the peaks. This wider curve keeps aerial depth readable.
+      float valleyFog(float d, float h) {
+        float x = max(d - 10.0, 0.0) * 0.0017;
+        float f = 1.0 - exp(-pow(x, 1.35));
+        f *= mix(1.0, 0.90, clamp(h / 130.0, 0.0, 1.0));
+        return clamp(f, 0.0, 0.88);
+      }
+
+      void main() {
+        vec3 N = normalize(vN);
+        float d = length(vWorld - cameraPosition);
+        float h = vWorld.y;
+        float slope = 1.0 - clamp(N.y, 0.0, 1.0);
+
+        float n1 = vnoise(vWorld.xz * 0.035);
+        float n2 = vnoise(vWorld.xz * 0.16);
+        float n3 = vnoise(vWorld.xz * 0.9);
+        float tuft = vnoise(vWorld.xz * 0.62 + 6.2);
+        float micro = vnoise(vWorld.xz * 2.4 - 2.8);
+
+        // meadow: green and dappled, a little drier toward the distance.
+        // The 0.6–0.9 m octave stands in for individual tufts and their
+        // shadows once the real grass cards become sub-pixel.
+        vec3 col = mix(uMeadowNear, uMeadowFar, smoothstep(8.0, 110.0, d));
+        col *= 0.85 + 0.15 * n1 + 0.09 * n2 + 0.06 * tuft;
+        col *= 0.98 + 0.04 * micro;
+
+        float dry = smoothstep(0.64, 0.90, vnoise(vWorld.xz * 0.32 + 2.1));
+        col = mix(col, vec3(0.74, 0.68, 0.42), dry * 0.09);
+        col += (n3 - 0.5) * 0.02;
+
+        // Flower-rich drifts. At valley scale the geometry flowers are only
+        // a few pixels wide, so soft colour fields carry the bloom from the
+        // middle distance instead of leaving a plain green carpet.
+        float bloomA = vnoise(vWorld.xz * 0.055 + 3.8);
+        float bloomB = vnoise(vWorld.xz * 0.21 - 1.7);
+        float bloom = smoothstep(0.44, 0.74, bloomA * 0.6 + bloomB * 0.4);
+        float bloomMask = (1.0 - smoothstep(30.0, 52.0, h)) *
+                          (1.0 - smoothstep(0.26, 0.46, slope)) *
+                          smoothstep(12.0, 42.0, d);
+        vec3 bloomWarm = vec3(0.92, 0.85, 0.52);
+        vec3 bloomCool = vec3(0.73, 0.75, 0.90);
+        vec3 bloomPale = vec3(0.94, 0.93, 0.84);
+        vec3 bloomCol = mix(bloomWarm, bloomCool,
+                            smoothstep(0.34, 0.66, vnoise(vWorld.xz * 0.08 + 9.0)));
+        bloomCol = mix(bloomCol, bloomPale,
+                       smoothstep(0.62, 0.88, bloomB) * 0.6);
+        col = mix(col, bloomCol, bloom * bloomMask * 0.30);
+        float petal = smoothstep(0.70, 0.92, vnoise(vWorld.xz * 1.4 + 8.1));
+        col = mix(col, bloomPale, petal * bloomMask * smoothstep(22.0, 60.0, d) * 0.20);
+
+        // scrub and woodland take over as the ground starts to climb
+        float scrub = smoothstep(0.45, 0.82, vnoise(vWorld.xz * 0.09 + 5.3));
+        scrub *= smoothstep(2.0, 12.0, h) * (1.0 - smoothstep(32.0, 58.0, h));
+        col = mix(col, uScrub * (0.86 + 0.22 * n2), scrub * 0.62);
+
+        float forest = smoothstep(0.45, 0.80, vnoise(vWorld.xz * 0.055 - 3.1));
+        forest *= smoothstep(7.0, 20.0, h) * (1.0 - smoothstep(46.0, 84.0, h));
+        vec3 forestCol = uForest * (0.80 + 0.30 * n2 + 0.10 * n3);
+        col = mix(col, forestCol, forest * 0.82);
+
+        // rock on steep faces and high crests
+        float rockMask = smoothstep(0.52, 0.90, slope);
+        rockMask = max(rockMask, smoothstep(78.0, 125.0, h) * 0.90);
+        rockMask *= 0.60 + 0.40 * smoothstep(0.20, 0.80, n2);
+        vec3 rock = mix(uRockDark, uRock, n2);
+        rock *= 0.94 + 0.10 * sin(h * 0.55 + vWorld.x * 0.02 + vWorld.z * 0.015);
+        col = mix(col, rock, clamp(rockMask, 0.0, 0.90));
+
+        // slope lighting
+        float nd = max(dot(N, normalize(uSunDir)), 0.0);
+        col *= 0.70 + 0.36 * nd;
+        col += uSun * nd * 0.055 * uSunStrength;
+
+        // a quiet rim on the crest, matching the old hills
+        float crest = smoothstep(0.35, 0.95, slope) * smoothstep(28.0, 80.0, h);
+        col += uSun * crest * 0.045 * uSunStrength;
+
+        // cloud shadows, projected like the meadow so the whole bowl darkens
+        vec2 sunXZ = uSunDir.xz / max(uSunDir.y, 0.18);
+        vec2 deckDrift = vec2(uTime * 1.35, uTime * 0.42);
+        vec2 deckPos = (vWorld.xz - sunXZ * 26.0 + deckDrift) * 0.016;
+        float d1 = vnoise(deckPos);
+        float d2 = vnoise(deckPos * 2.7 + 9.0);
+        float deck = smoothstep(0.38, 0.72, d1 * 0.7 + d2 * 0.3);
+        float shade = deck * uCloudShadow * clamp(uSunStrength, 0.0, 1.0);
+        col *= 1.0 - shade * 0.22;
+
+        vec3 viewDir = normalize(vWorld - cameraPosition);
+        float fog = valleyFog(d, h) * uHazeAmount;
+        vec3 fogCol = aerialColor(uHaze, uSun, uSunDir, viewDir, vWorld.xz, uTime);
+        col = mix(col, fogCol, fog);
+
+        gl_FragColor = vec4(col, 1.0);
+        #include <colorspace_fragment>
+      }
+    `
+  });
+
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.frustumCulled = false;
+  mesh.receiveShadow = false;
+  return { mesh, material, radius: VALLEY_RADIUS, center: VALLEY_CENTER };
+}
+
+/* ------------------------------------------------------------------ */
 /* meadow material                                                     */
 /* ------------------------------------------------------------------ */
 
 function createMeadowMaterial() {
   const uniforms = {
     uTime: { value: 0 },
+    uStrength: { value: 0 },
+    uWind: { value: new THREE.Vector3(1, 0, 0) },
     uLocalStrength: { value: 0 },
     uLocalWind: { value: new THREE.Vector2(1, 0) },
     uSweepA: { value: new THREE.Vector2() },
@@ -1095,6 +1389,8 @@ function createMeadowMaterial() {
     uniforms,
     vertexShader: /* glsl */ `
       uniform float uTime;
+      uniform float uStrength;
+      uniform vec3 uWind;
       uniform float uLocalStrength;
       uniform vec2 uLocalWind;
       uniform vec2 uSweepA;
@@ -1144,9 +1440,15 @@ function createMeadowMaterial() {
         float dLocal = distToSegment(ndc * aspectFix, uSweepA * aspectFix, uSweepB * aspectFix);
         float localFall = 1.0 - smoothstep(uRadiusNdc * 0.12, uRadiusNdc, dLocal);
 
+        float wl = length(uWind.xz);
+        vec2 wdir = wl > 0.001 ? normalize(uWind.xz) : vec2(0.74, 0.36);
+
+        float ambientSway =
+          uStrength * (0.85 + 0.15 * sin(uTime * 0.43 + world.x * 0.035 + world.z * 0.028));
         float idleAngle =
           sin(uTime * 1.15 + phase + world.x * 0.30) * 0.018 +
-          sin(uTime * 0.47 + phase * 1.75 + world.z * 0.42) * 0.011;
+          sin(uTime * 0.47 + phase * 1.75 + world.z * 0.42) * 0.011 +
+          ambientSway * 0.070;
 
         float localRipple =
           0.82 +
@@ -1161,7 +1463,7 @@ function createMeadowMaterial() {
         vec2 localDir = uLocalWind + vec2(sin(phase * 2.3), cos(phase * 1.7)) * 0.09;
         localDir = length(localDir) > 1e-4 ? normalize(localDir) : vec2(0.7, 0.3);
 
-        vec2 bendVec = vec2(0.74, 0.36) / 0.827 * idleAngle + localDir * localAngle;
+        vec2 bendVec = wdir * idleAngle + localDir * localAngle;
         float angle = length(bendVec);
         vec2 bendDir = angle > 1e-5 ? bendVec / angle : vec2(0.0);
 
@@ -1283,6 +1585,55 @@ function inSightCorridor(x, z, patch) {
   return Math.abs(x - lineX) < width;
 }
 
+/* Deterministic scatter of wildflower patches across the whole basin.
+   The near PATCHES above stay as the readable foreground layer; these
+   fill the middle distance so the meadow does not read as plain green. */
+function seeded(i, salt) {
+  const s = Math.sin(i * 127.1 + salt * 311.7) * 43758.5453;
+  return s - Math.floor(s);
+}
+
+const VALLEY_PATCHES = (() => {
+  const assets = [
+    'flower-daisy',
+    'flower-buttercup',
+    'flower-forget',
+    'flower-lavender'
+  ];
+  const list = [];
+  const attempts = 56;
+
+  for (let i = 0; i < attempts; i++) {
+    const angle = i * 2.399963229728653;
+    const t = (i + 0.7) / attempts;
+    const r = 9 + 84 * Math.pow(t, 0.75);
+    const x = Math.sin(angle) * r;
+    const z = Math.cos(angle) * r;
+
+    const h = valleyHeight(x, z);
+    const slope = valleySlope(x, z);
+    if (h > 18 || slope > 0.38) continue;
+
+    list.push({
+      asset: assets[i % assets.length],
+      x,
+      z,
+      radius: 2.8 + seeded(i, 1) * 3.2,
+      count: 24 + Math.floor(seeded(i, 2) * 26),
+      scale: 1.25 + seeded(i, 3) * 0.75,
+      view: false
+    });
+  }
+  return list;
+})();
+
+function getValleyPatches({ minRadius = 0, maxRadius = Infinity } = {}) {
+  return VALLEY_PATCHES.concat(PATCHES).filter((patch) => {
+    const r = Math.hypot(patch.x, patch.z);
+    return r >= minRadius && r < maxRadius;
+  });
+}
+
 const GRASS = VEGETATION_ASSETS.filter((asset) => asset.kind === 'grass');
 const FLOWERS = VEGETATION_ASSETS.filter((asset) => asset.kind === 'flower');
 
@@ -1308,43 +1659,84 @@ function pickGrassAsset(z) {
   return GRASS[0];
 }
 
-function createAssetMeadow({ coarse = false } = {}) {
+function createAssetMeadow({
+  coarse = false,
+  layout = 'strip',
+  heightAt = terrainHeight,
+  slopeAt = null,
+  radius = 92,
+  minRadius = 0,
+  maxHeight = 20,
+  maxSlope = 0.45,
+  count = null,
+  patches = null,
+  material = null
+} = {}) {
   const entries = new Map();
   for (const asset of VEGETATION_ASSETS) {
     for (let v = 0; v < 3; v++) entries.set(`${asset.id}:${v}`, []);
   }
 
-  const target = coarse ? 5000 : 9000;
+  const activePatches = patches || (layout === 'valley'
+    ? VALLEY_PATCHES.concat(PATCHES)
+    : PATCHES);
+  const target = count || (coarse ? 5000 : 9000);
   let total = 0;
   let guard = 0;
 
   while (total < target && guard < target * 4) {
     guard++;
-    // Bias the depth toward the camera: most clumps live in the near
-    // and middle field, where the extra density actually reads.
-    const u = Math.random();
-    const z = 8.0 - Math.pow(u, 1.5) * 42.0;
-    const x = (Math.random() * 2 - 1) * (18.0 + Math.abs(z) * 0.55);
+
+    let x;
+    let z;
+    if (layout === 'valley') {
+      // A radial scatter fills the whole basin instead of one strip in
+      // front of the camera. The inner disc is biased toward the centre;
+      // outer LOD rings are sampled uniformly by area.
+      const a = Math.random() * TAU;
+      const u = Math.random();
+      const rr = minRadius > 0
+        ? Math.sqrt(minRadius * minRadius +
+          (radius * radius - minRadius * minRadius) * u)
+        : radius * Math.pow(u, 0.62);
+      x = Math.sin(a) * rr;
+      z = Math.cos(a) * rr;
+    } else {
+      // Bias the depth toward the camera: most clumps live in the near
+      // and middle field, where the extra density actually reads.
+      const u = Math.random();
+      z = 8.0 - Math.pow(u, 1.5) * 42.0;
+      x = (Math.random() * 2 - 1) * (18.0 + Math.abs(z) * 0.55);
+    }
     if (x * x + z * z < 1.25 * 1.25) continue;
 
+    // In the valley, grass climbs the lower slopes and stops where the
+    // ground turns to rock.
+    if (layout === 'valley') {
+      if (heightAt(x, z) > maxHeight) continue;
+      if (slopeAt && slopeAt(x, z) > maxSlope) continue;
+    }
+
     // Thin the grass into a soft low lane between the camera and the near
-// flower patches, otherwise 1.3 m foreground grass completely hides the
-// 0.5 m flowers.
+    // flower patches, otherwise 1.3 m foreground grass completely hides the
+    // 0.5 m flowers. A radial valley has no single sight lane.
     let short = 1.0;
     let skip = false;
-    for (const patch of PATCHES) {
-      if (!inSightCorridor(x, z, patch)) continue;
-      if (Math.random() < 0.35) {
-        skip = true;
-        break;
+    if (layout !== 'valley') {
+      for (const patch of activePatches) {
+        if (!inSightCorridor(x, z, patch)) continue;
+        if (Math.random() < 0.35) {
+          skip = true;
+          break;
+        }
+        short = Math.min(short, 0.45);
       }
-      short = Math.min(short, 0.45);
+      if (skip) continue;
     }
-    if (skip) continue;
 
     // Thin and shorten the grass inside flower patches so the flowers
     // keep their heads above the meadow.
-    for (const patch of PATCHES) {
+    for (const patch of activePatches) {
       const dx = x - patch.x;
       const dz = z - patch.z;
       if (dx * dx + dz * dz < patch.radius * patch.radius) {
@@ -1362,11 +1754,11 @@ function createAssetMeadow({ coarse = false } = {}) {
     const asset = pickGrassAsset(z);
     const variant = Math.floor(Math.random() * 3);
     const base = 0.78 + Math.random() * 0.5;
-    const tall = z > 2.0 ? 1.06 : 1.0;
+    const tall = layout === 'valley' ? 1.0 : (z > 2.0 ? 1.06 : 1.0);
     entries.get(`${asset.id}:${variant}`).push({
       x,
       z,
-      y: terrainHeight(x, z),
+      y: heightAt(x, z),
       sx: base * (0.90 + Math.random() * 0.22),
       sy: base * tall * short,
       yaw: Math.random() * TAU,
@@ -1377,7 +1769,7 @@ function createAssetMeadow({ coarse = false } = {}) {
   }
 
   const flowerMul = coarse ? 0.72 : 1.0;
-  for (const patch of PATCHES) {
+  for (const patch of activePatches) {
     const asset = FLOWERS.find((a) => a.id === patch.asset);
     if (!asset) continue;
     const count = Math.max(1, Math.round(patch.count * flowerMul));
@@ -1392,7 +1784,7 @@ function createAssetMeadow({ coarse = false } = {}) {
       entries.get(`${asset.id}:${variant}`).push({
         x,
         z,
-        y: terrainHeight(x, z),
+        y: heightAt(x, z),
         sx: base,
         sy: base * (0.92 + Math.random() * 0.16),
         yaw: Math.random() * TAU,
@@ -1403,7 +1795,7 @@ function createAssetMeadow({ coarse = false } = {}) {
   }
 
   const group = new THREE.Group();
-  const material = createMeadowMaterial();
+  const mat = material || createMeadowMaterial();
   const meshes = [];
   const dummy = new THREE.Object3D();
   let grassCount = 0;
@@ -1415,7 +1807,7 @@ function createAssetMeadow({ coarse = false } = {}) {
       if (!list.length) continue;
 
       const geometry = asset.build(asset.seeds[variant]);
-      const mesh = new THREE.InstancedMesh(geometry, material, list.length);
+      const mesh = new THREE.InstancedMesh(geometry, mat, list.length);
       mesh.frustumCulled = false;
 
       const phases = new Float32Array(list.length);
@@ -1443,12 +1835,12 @@ function createAssetMeadow({ coarse = false } = {}) {
     }
   }
 
-  return { group, material, meshes, grassCount, flowerCount, patches: PATCHES };
+  return { group, material: mat, meshes, grassCount, flowerCount, patches: activePatches };
 }
-return { terrainHeight, createTerrain, createAssetMeadow };
+return { terrainHeight, createTerrain, valleyHeight, valleySlope, createValleyTerrain, getValleyPatches, createAssetMeadow };
 } };
 
-defs["js/wind.js"] = { deps: ["three"], factory: function (d) {
+defs["src/engine/wind.js"] = { deps: ["three"], factory: function (d) {
       const THREE = d["three"].THREE;
 
 /**
@@ -1520,7 +1912,25 @@ class WindField {
       grassBendScale: 1.0
     };
     this.dir = new THREE.Vector3(1, 0.02, 0.1).normalize();
-    this.ambient = new THREE.Vector3(0.13, 0, 0.04);
+    // Natural meadow breeze. It is deliberately much weaker than a hand
+    // gust, but it is always present and has slow periodicity, a slowly
+    // turning direction, and occasional random soft gusts.
+    this.ambient = new THREE.Vector3(0.35, 0, 0.1);
+    this.breezeDir = new THREE.Vector2(1, 0.28).normalize();
+    this.breezePower = 0.18;
+    this.breezeSpeed = 0.5;
+    this._breeze = {
+      baseAngle: Math.random() * Math.PI * 2,
+      phaseA: Math.random() * Math.PI * 2,
+      phaseB: Math.random() * Math.PI * 2,
+      phaseC: Math.random() * Math.PI * 2,
+      phaseD: Math.random() * Math.PI * 2,
+      phaseE: Math.random() * Math.PI * 2,
+      gustTimer: 5 + Math.random() * 10,
+      gustAge: 999,
+      gustDur: 0,
+      gustPeak: 0
+    };
 
     this.pointerNorm = new THREE.Vector2(0, 0);
     this.pointerPx = new THREE.Vector2(window.innerWidth / 2, window.innerHeight * 0.42);
@@ -1568,6 +1978,14 @@ class WindField {
     this._proj = new THREE.Vector3();
     this._sampleAir = new THREE.Vector3();
     this._forced = null;
+
+    // A second, world-space source: the tumbleweed itself. It is kept
+    // separate from the pointer trail so movement can coexist with a hand
+    // gust (the strongest source at a sample wins).
+    this._playerSource = null;
+    this._playerScreen = new THREE.Vector2();
+    this._playerAir = new THREE.Vector3();
+    this.playerStrength = 0;
 
     this._bind();
   }
@@ -1778,12 +2196,55 @@ class WindField {
     this.airSpeed = this.energy * this.params.maxAirSpeed;
     this.maxAirSpeed = this.params.maxAirSpeed;
 
-    // a gentle, non-directional meadow breeze exists between gusts
-    const breeze = 1 - 0.65 * this.energy;
+    // ---- natural breeze ------------------------------------------------
+    // Three slow periods (roughly 60 s / 26 s / 11 s) give the meadow a
+    // breathing rhythm; random soft gust events break the regularity.
+    const b = this._breeze;
+    b.gustTimer -= dt;
+    if (b.gustTimer <= 0) {
+      b.gustAge = 0;
+      b.gustDur = 2.8 + Math.random() * 4.2;
+      b.gustPeak = 0.10 + Math.random() * 0.16;
+      b.gustTimer = 8 + Math.random() * 15;
+    }
+
+    let gust = 0;
+    if (b.gustAge < b.gustDur) {
+      b.gustAge += dt;
+      const u = THREE.MathUtils.clamp(b.gustAge / Math.max(0.01, b.gustDur), 0, 1);
+      const env = Math.sin(Math.PI * u);
+      gust = b.gustPeak * env * env;
+    }
+
+    const swell = 0.5 + 0.5 * Math.sin(t * 0.105 + b.phaseA);
+    const breath = 0.5 + 0.5 * Math.sin(t * 0.237 + b.phaseB);
+    const rustle = 0.5 + 0.5 * Math.sin(t * 0.552 + b.phaseC);
+    const handCalm = 1 - 0.36 * this.energy;
+
+    // Keep the breeze subordinate to a real hand gust, but never switch it
+    // completely off: the grass should keep breathing after a swipe too.
+    this.breezePower = THREE.MathUtils.clamp(
+      (0.16 + 0.20 * swell + 0.10 * breath + 0.035 * rustle + gust) * handCalm,
+      0,
+      0.85
+    );
+    // Keep the real air velocity below the dandelion's natural-release
+    // threshold, so a soft breeze sways and drifts things without stripping
+    // the whole head. The grass has its own stronger visual amplitude.
+    this.breezeSpeed = 0.12 + this.breezePower * 0.55;
+
+    // The heading wanders on two slow, coprime periods so the meadow does
+    // not look like it is pinned to one direction.
+    const angle =
+      b.baseAngle +
+      0.52 * Math.sin(t * 0.041 + b.phaseD) +
+      0.18 * Math.sin(t * 0.119 + b.phaseE);
+    this.breezeDir.set(Math.cos(angle), Math.sin(angle));
     this.ambient.set(
-      (0.12 + 0.05 * Math.sin(t * 0.31)) * breeze,
-      0.006 * Math.sin(t * 0.43),
-      (0.035 + 0.03 * Math.cos(t * 0.23 + 1.1)) * breeze
+      this.breezeDir.x * this.breezeSpeed,
+      0.04 * Math.sin(t * 0.21 + b.phaseC) +
+        0.02 * Math.sin(t * 0.43 + b.phaseB),
+      this.breezeDir.y * this.breezeSpeed
     );
 
     // ---- age trail, then record the new path segment -------------------
@@ -1866,6 +2327,38 @@ class WindField {
 
     this.grassStrength = this.grassPower;
 
+    // The tumbleweed's local patch wins over the pointer patch while it is
+    // moving: grass bends around the player, in the direction of travel.
+    if (this._playerSource) {
+      const ps = this._playerSource;
+      this.grassRadiusPx = Math.max(this.grassRadiusPx, ps.radiusPx * 1.05);
+      this.grassRadiusNdc = this.grassRadiusPx / (H * 0.5);
+
+      this.grassAnchor.set(ps.x, ps.y);
+      this.grassTip.set(ps.x, ps.y);
+      this.grassA.set(
+        (ps.x / W) * 2 - 1,
+        1 - (ps.y / H) * 2
+      );
+      this.grassB.copy(this.grassA);
+
+      if (ps.horizontalSpeed > 0.08) {
+        const targetAngle = Math.atan2(ps.horizontal.y, ps.horizontal.x);
+        let angleDelta = targetAngle - this.grassAngleSmooth;
+        if (angleDelta > Math.PI) angleDelta -= Math.PI * 2;
+        if (angleDelta < -Math.PI) angleDelta += Math.PI * 2;
+        this.grassAngleSmooth += angleDelta * (1 - Math.exp(-5 * dt));
+        this.grassDirSmooth.set(
+          Math.cos(this.grassAngleSmooth),
+          Math.sin(this.grassAngleSmooth)
+        );
+      }
+
+      this.grassPower +=
+        (ps.grassPower - this.grassPower) * (1 - Math.exp(-7 * dt));
+      this.grassStrength = this.grassPower;
+    }
+
     this.prevPx.set(currX, currY);
     this._accum.set(0, 0);
     this._accumDt = 0;
@@ -1888,6 +2381,20 @@ class WindField {
       out.copy(this.dir).multiplyScalar(magCur);
     }
 
+    // The tumbleweed's own world-space wind.
+    const ps = this._playerSource;
+    if (ps && ps.strength > 0) {
+      const dPlayer = Math.hypot(x - ps.x, y - ps.y);
+      const wPlayer = 1 - smoothstep(ps.radiusPx * 0.12, ps.radiusPx, dPlayer);
+      if (wPlayer > 0) {
+        const magPlayer = ps.airSpeed * wPlayer;
+        if (magPlayer > best) {
+          best = magPlayer;
+          out.copy(ps.air).multiplyScalar(wPlayer);
+        }
+      }
+    }
+
     // wake left along the recent path
     for (let i = 0; i < this.trail.length; i++) {
       const seg = this.trail[i];
@@ -1907,7 +2414,10 @@ class WindField {
     }
 
     out.add(this.ambient);
-    return best;
+    // Include the breeze in the returned magnitude, so slow-moving things
+    // such as the dandelion head can feel it without a pointer gesture.
+    const total = Math.hypot(out.x, out.y, out.z);
+    return Math.max(best, total);
   }
 
   projectToScreen(pos, out) {
@@ -1953,6 +2463,59 @@ class WindField {
   }
 
   /**
+   * Feed the tumbleweed's world-space motion into the field. The source is
+   * local to the player's projected screen position, so the existing grass
+   * shader, dandelions, seeds, pollen and fireflies all respond without
+   * needing a separate particle system.
+   */
+  setPlayerSource(position, velocity, camera = null) {
+    if (camera) this.camera = camera;
+    const speed = velocity.length();
+    if (speed < 0.12 || !this.camera) {
+      this.clearPlayerSource();
+      return false;
+    }
+
+    if (!this.projectToScreen(position, this._playerScreen)) {
+      this.clearPlayerSource();
+      return false;
+    }
+
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    const strength = THREE.MathUtils.clamp(speed / MAX_AIR_SPEED, 0, 1);
+    const airSpeed = Math.min(MAX_AIR_SPEED, speed * 1.1);
+    this._playerAir.copy(velocity).normalize().multiplyScalar(airSpeed);
+
+    const horizontalSpeed = Math.hypot(velocity.x, velocity.z);
+    const hx = horizontalSpeed > 1e-4 ? velocity.x / horizontalSpeed : 0;
+    const hz = horizontalSpeed > 1e-4 ? velocity.z / horizontalSpeed : 0;
+
+    this._playerSource = {
+      x: this._playerScreen.x,
+      y: this._playerScreen.y,
+      radiusPx: THREE.MathUtils.clamp(Math.min(W, H) * 0.34 * 1.1, 190, 560),
+      air: this._playerAir,
+      airSpeed,
+      strength,
+      horizontal: new THREE.Vector2(hx, hz),
+      horizontalSpeed,
+      grassPower: THREE.MathUtils.clamp(
+        strength * (0.55 + 0.45 * Math.min(1, horizontalSpeed / MAX_AIR_SPEED)),
+        0,
+        1
+      )
+    };
+    this.playerStrength = strength;
+    return true;
+  }
+
+  clearPlayerSource() {
+    this._playerSource = null;
+    this.playerStrength = 0;
+  }
+
+  /**
    * Synthetic control used by the optional auto demo and the still-frame
    * test harness. x/y is the screen position of the moving source.
    */
@@ -1972,12 +2535,12 @@ class WindField {
 return { WindField };
 } };
 
-defs["js/world.js"] = { deps: ["three", "js/meadow.js", "js/fireflies.js", "js/birds.js", "js/clouds.js"], factory: function (d) {
+defs["src/engine/world.js"] = { deps: ["three", "src/engine/meadow.js", "src/engine/fireflies.js", "src/engine/birds.js", "src/engine/clouds.js"], factory: function (d) {
       const THREE = d["three"].THREE;
-      const { createTerrain, createAssetMeadow, terrainHeight } = d["js/meadow.js"];
-      const { createFireflies } = d["js/fireflies.js"];
-      const { createBirds } = d["js/birds.js"];
-      const { createClouds } = d["js/clouds.js"];
+      const { createTerrain, createAssetMeadow, terrainHeight, createValleyTerrain, valleyHeight, valleySlope, getValleyPatches } = d["src/engine/meadow.js"];
+      const { createFireflies } = d["src/engine/fireflies.js"];
+      const { createBirds } = d["src/engine/birds.js"];
+      const { createClouds } = d["src/engine/clouds.js"];
 
 
 
@@ -2185,11 +2748,11 @@ function createTreeline({ radius = 50, width = 200, segments = 440 } = {}) {
 /* valley mist between the near and middle ridges                      */
 /* ------------------------------------------------------------------ */
 
-function createValleyMist({ radius = 74, height = 26 } = {}) {
+function createValleyMist({ radius = 74, height = 26, opacity = 0.38 } = {}) {
   const material = new THREE.ShaderMaterial({
     uniforms: {
       uColor: { value: new THREE.Color('#e7dfc3') },
-      uOpacity: { value: 0.38 },
+      uOpacity: { value: opacity },
       uTime: { value: 0 }
     },
     vertexShader: /* glsl */ `
@@ -2223,10 +2786,11 @@ function createValleyMist({ radius = 74, height = 26 } = {}) {
   });
 
   const geometry = new THREE.CylinderGeometry(radius, radius, height, 200, 1, true);
-  geometry.translate(0, 10, 0);
+  geometry.translate(0, height * 0.35, 0);
   const mesh = new THREE.Mesh(geometry, material);
   mesh.renderOrder = 1;
   mesh.frustumCulled = false;
+  mesh.userData.baseOpacity = opacity;
   return mesh;
 }
 
@@ -2394,12 +2958,33 @@ function bladeGeometry() {
   return geometry;
 }
 
-function createMeadow() {
-  const coarse = window.matchMedia('(pointer: coarse)').matches;
-  const count = coarse ? 3800 : 6800;
+/* ------------------------------------------------------------------ */
+/* instanced grass carpet                                              */
+/*                                                                     */
+/* Single-ribbon blades carry the far ground cover cheaply. The hero   */
+/* clumps (meadow.js) sit on top near the centre; this layer spreads   */
+/* across the whole basin and up the lower slopes.                     */
+/* ------------------------------------------------------------------ */
 
+function createGrassCarpet({
+  coarse = window.matchMedia('(pointer: coarse)').matches,
+  count = coarse ? 3800 : 6800,
+  layout = 'strip',
+  heightAt = terrainHeight,
+  slopeAt = null,
+  radius = 115,
+  minRadius = 0,
+  maxHeight = Infinity,
+  maxSlope = Infinity,
+  fadeNear = 13,
+  fadeFar = 44,
+  baseColor = '#35491f',
+  midColor = '#6d8644',
+  tipColor = '#a6b96a',
+  material = null
+} = {}) {
   const geometry = bladeGeometry();
-  const material = new THREE.ShaderMaterial({
+  const mat = material || new THREE.ShaderMaterial({
     side: THREE.DoubleSide,
     uniforms: {
       uTime: { value: 0 },
@@ -2411,12 +2996,14 @@ function createMeadow() {
       uSweepB: { value: new THREE.Vector2() },
       uRadiusNdc: { value: 0.35 },
       uAspect: { value: 1.6 },
-      uBase: { value: new THREE.Color('#35491f') },
-      uMid: { value: new THREE.Color('#6d8644') },
-      uTip: { value: new THREE.Color('#a6b96a') },
+      uBase: { value: new THREE.Color(baseColor) },
+      uMid: { value: new THREE.Color(midColor) },
+      uTip: { value: new THREE.Color(tipColor) },
       uSun: { value: new THREE.Color('#f0e0ad') },
       uSunDir: { value: new THREE.Vector3(5.5, 8.5, 4.5).normalize() },
-      uHaze: { value: new THREE.Color('#e3ddc2') }
+      uHaze: { value: new THREE.Color('#e3ddc2') },
+      uFadeNear: { value: fadeNear },
+      uFadeFar: { value: fadeFar }
     },
     vertexShader: /* glsl */ `
       uniform float uTime;
@@ -2434,6 +3021,8 @@ function createMeadow() {
       uniform vec3 uSun;
       uniform vec3 uSunDir;
       uniform vec3 uHaze;
+      uniform float uFadeNear;
+      uniform float uFadeFar;
       attribute float aPhase;
       attribute float aShade;
 
@@ -2463,10 +3052,13 @@ function createMeadow() {
         float dLocal = distToSegment(ndc * aspectFix, uSweepA * aspectFix, uSweepB * aspectFix);
         float localFall = 1.0 - smoothstep(uRadiusNdc * 0.12, uRadiusNdc, dLocal);
 
-        // Very slow idle sway + a smoothed, smaller local gust.
+        // Very slow idle sway, a travelling meadow breeze, and the local gust.
+        float ambientSway =
+          uStrength * (0.85 + 0.15 * sin(uTime * 0.43 + world.x * 0.035 + world.z * 0.028));
         float idleAngle =
           sin(uTime * 1.15 + aPhase + world.x * 0.30) * 0.018 +
-          sin(uTime * 0.47 + aPhase * 1.75 + world.z * 0.42) * 0.011;
+          sin(uTime * 0.47 + aPhase * 1.75 + world.z * 0.42) * 0.011 +
+          ambientSway * 0.070;
 
         float localRipple =
           0.82 +
@@ -2499,11 +3091,8 @@ function createMeadow() {
         vec4 mv = viewMatrix * world;
         float dist = -mv.z;
 
-        vec3 base = uBase;
-        vec3 mid = uMid;
-        vec3 tip = uTip;
-        vec3 col = mix(base, mid, smoothstep(0.0, 0.62, h));
-        col = mix(col, tip, smoothstep(0.55, 1.0, h));
+        vec3 col = mix(uBase, uMid, smoothstep(0.0, 0.62, h));
+        col = mix(col, uTip, smoothstep(0.55, 1.0, h));
         col *= 0.82 + aShade * 0.28;
 
         // per-blade diffuse response: randomly turned ribbons catch the sun
@@ -2522,7 +3111,7 @@ function createMeadow() {
                               * sin(world.z * 0.062 - uTime * 0.035);
         col *= dapple;
 
-        float haze = smoothstep(13.0, 44.0, dist);
+        float haze = smoothstep(uFadeNear, uFadeFar, dist);
         col = mix(col, uHaze, haze * 0.94);
 
         vColor = col;
@@ -2541,23 +3130,41 @@ function createMeadow() {
     `
   });
 
-  const mesh = new THREE.InstancedMesh(geometry, material, count);
-  mesh.frustumCulled = false;
-  mesh.renderOrder = 0;
-
-  const phases = new Float32Array(count);
-  const shades = new Float32Array(count);
-
   const dummy = new THREE.Object3D();
+  const placements = [];
+  let guard = 0;
 
-  for (let i = 0; i < count; i++) {
-    // Uniform field, slightly denser towards the camera.
-    const depth = Math.random();
-    const z = 8.0 - depth * 34.0;
-    const x = (Math.random() * 2 - 1) * (16 + Math.abs(z) * 0.55);
+  while (placements.length < count && guard < count * 6) {
+    guard++;
 
-    // A handful of taller blades frame the very front of the shot.
-    const foreground = z > 2.0 && Math.random() < 0.09;
+    let x;
+    let z;
+    if (layout === 'radial') {
+      const a = Math.random() * Math.PI * 2;
+      const u = Math.random();
+      const rr = minRadius > 0
+        ? Math.sqrt(minRadius * minRadius +
+          (radius * radius - minRadius * minRadius) * u)
+        : radius * Math.pow(u, 0.58);
+      x = Math.sin(a) * rr;
+      z = Math.cos(a) * rr;
+      if (x * x + z * z < 1.1 * 1.1) continue;
+    } else {
+      // Uniform field, slightly denser towards the camera.
+      const depth = Math.random();
+      z = 8.0 - depth * 34.0;
+      x = (Math.random() * 2 - 1) * (16 + Math.abs(z) * 0.55);
+    }
+
+    const y = heightAt(x, z);
+    if (layout === 'radial') {
+      if (y > maxHeight) continue;
+      if (slopeAt && slopeAt(x, z) > maxSlope) continue;
+    }
+    const distance = Math.hypot(x, z);
+    const foreground = layout === 'radial'
+      ? distance < 12 && Math.random() < 0.16
+      : z > 2.0 && Math.random() < 0.09;
 
     const height = foreground
       ? 0.8 + Math.random() * 0.6
@@ -2566,26 +3173,43 @@ function createMeadow() {
       ? 1.2 + Math.random() * 0.5
       : 0.7 + Math.random() * 0.8;
 
-    dummy.position.set(x, 0, z);
-    dummy.rotation.set(
-      (Math.random() - 0.5) * 0.18,
-      Math.random() * Math.PI * 2,
-      (Math.random() - 0.5) * 0.2
-    );
-    dummy.scale.set(widthScale, height, widthScale);
+    placements.push({
+      x,
+      y,
+      z,
+      height,
+      widthScale,
+      rotX: (Math.random() - 0.5) * 0.18,
+      rotY: Math.random() * Math.PI * 2,
+      rotZ: (Math.random() - 0.5) * 0.2,
+      phase: Math.random() * Math.PI * 2,
+      shade: Math.random()
+    });
+  }
+
+  const mesh = new THREE.InstancedMesh(geometry, mat, placements.length);
+  mesh.frustumCulled = false;
+  mesh.renderOrder = 0;
+
+  const phases = new Float32Array(placements.length);
+  const shades = new Float32Array(placements.length);
+
+  for (let i = 0; i < placements.length; i++) {
+    const e = placements[i];
+    dummy.position.set(e.x, e.y, e.z);
+    dummy.rotation.set(e.rotX, e.rotY, e.rotZ);
+    dummy.scale.set(e.widthScale, e.height, e.widthScale);
     dummy.updateMatrix();
     mesh.setMatrixAt(i, dummy.matrix);
-
-    phases[i] = Math.random() * Math.PI * 2;
-    shades[i] = Math.random();
-
+    phases[i] = e.phase;
+    shades[i] = e.shade;
   }
 
   geometry.setAttribute('aPhase', new THREE.InstancedBufferAttribute(phases, 1));
   geometry.setAttribute('aShade', new THREE.InstancedBufferAttribute(shades, 1));
   mesh.instanceMatrix.needsUpdate = true;
 
-  return mesh;
+  return { mesh, material: mat, count: placements.length };
 }
 
 /* ------------------------------------------------------------------ */
@@ -2608,7 +3232,7 @@ function moteTexture() {
   return tex;
 }
 
-function createMotes() {
+function createMotes({ heightAt = terrainHeight } = {}) {
   const count = 90;
   const positions = new Float32Array(count * 3);
   const seeds = [];
@@ -2616,7 +3240,7 @@ function createMotes() {
   for (let i = 0; i < count; i++) {
     const x = (Math.random() * 2 - 1) * 13;
     const z = -10 + Math.random() * 17;
-    const ground = terrainHeight(x, z);
+    const ground = heightAt(x, z);
     const y = ground + 0.35 + Math.random() * 4.6;
     positions[i * 3] = x;
     positions[i * 3 + 1] = y;
@@ -2802,6 +3426,8 @@ function createWorld(scene, { camera } = {}) {
       clouds.update(t, dt);
       const mu = meadow.material.uniforms;
       mu.uTime.value = t;
+      mu.uStrength.value = wind.breezePower;
+      mu.uWind.value.set(wind.breezeDir.x, 0, wind.breezeDir.y);
       mu.uLocalStrength.value = Math.min(1, wind.grassStrength * wind.params.grassShaderGain);
       mu.uBendScale.value = wind.params.grassBendScale;
       mu.uTranslucency.value = this.params.translucency;
@@ -2816,6 +3442,311 @@ function createWorld(scene, { camera } = {}) {
       mu.uRadiusNdc.value = wind.grassRadiusNdc;
       mu.uAspect.value = wind.aspect;
 
+      fireflies.update(t, dt, wind);
+      birds.update(t, dt, lastSky);
+
+      const pos = motes.positions;
+      for (let i = 0; i < motes.points.geometry.attributes.position.count; i++) {
+        const m = motes.seeds[i];
+        motePos.set(m.x, m.y, m.z);
+        wind.airAtWorld(motePos, moteAir);
+        const twinkle = Math.sin(t * m.speed + m.phase);
+        m.x += (moteAir.x * 0.16 + twinkle * 0.012) * dt;
+        m.y += (moteAir.y * 0.07 + 0.012 + Math.cos(t * m.speed * 1.3 + m.phase) * 0.012) * dt;
+        m.z += (moteAir.z * 0.1 + Math.sin(t * 0.2 + m.phase) * 0.008) * dt;
+
+        if (m.x > 16) m.x = -16;
+        if (m.x < -16) m.x = 16;
+        if (m.y > m.ground + 5.2) m.y = m.ground + 0.25;
+        if (m.z > 9) m.z = -11;
+        if (m.z < -12) m.z = 8;
+
+        pos[i * 3] = m.x + Math.sin(t * 0.4 + m.phase) * 0.12;
+        pos[i * 3 + 1] = m.y;
+        pos[i * 3 + 2] = m.z;
+      }
+      motes.geometry.attributes.position.needsUpdate = true;
+    }
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* complete valley: one continuous terrain, no billboard ridges        */
+/* used by labs/valley.html                                            */
+/* ------------------------------------------------------------------ */
+
+// Cloud planes sit entirely outside the terrain disc (radius 345), so they
+// can be occluded by the mountain silhouette but never intersect its faces.
+const VALLEY_CLOUD_LAYERS = [
+  { radius: 396, y: 96, w: 560, h: 120, haze: 0.46, opacity: 0.78, speed: 1.5, count: 3, phase: -0.35 },
+  { radius: 486, y: 150, w: 460, h: 105, haze: 0.30, opacity: 0.72, speed: 2.8, count: 3, phase: 0.55 },
+  { radius: 596, y: 210, w: 380, h: 92, haze: 0.18, opacity: 0.62, speed: 4.2, count: 2, phase: -0.15 }
+];
+
+function createValleyWorld(scene, { camera, quality = 'auto' } = {}) {
+  const coarse = quality === 'coarse' ||
+    quality === 'low' ||
+    window.matchMedia('(pointer: coarse)').matches;
+
+  const group = new THREE.Group();
+  scene.add(group);
+
+  const terrain = createValleyTerrain({ coarse });
+  group.add(terrain.mesh);
+
+  // Grass is split into two LOD rings. The inner 54 m gets a much higher
+  // density; the ring out to 108 m is cheaper and mostly carries colour.
+  // Beyond that the terrain shader's tuft and flower fields take over.
+  const NEAR_RADIUS = 58;
+  const MID_RADIUS = 110;
+
+  const nearPatches = getValleyPatches({ maxRadius: NEAR_RADIUS });
+  const midPatches = getValleyPatches({
+    minRadius: NEAR_RADIUS,
+    maxRadius: MID_RADIUS
+  });
+
+  // L0 · detailed inner disc
+  const nearCarpet = createGrassCarpet({
+    coarse,
+    count: coarse ? 15000 : 36000,
+    layout: 'radial',
+    heightAt: valleyHeight,
+    slopeAt: valleySlope,
+    radius: NEAR_RADIUS,
+    maxHeight: 25,
+    maxSlope: 0.56,
+    fadeNear: 42,
+    fadeFar: 140,
+    baseColor: '#2f451e',
+    midColor: '#5f7a3c',
+    tipColor: '#9db263'
+  });
+  group.add(nearCarpet.mesh);
+
+  const nearMeadow = createAssetMeadow({
+    coarse,
+    layout: 'valley',
+    heightAt: valleyHeight,
+    slopeAt: valleySlope,
+    radius: NEAR_RADIUS,
+    maxHeight: 25,
+    maxSlope: 0.56,
+    count: coarse ? 10000 : 18000,
+    patches: nearPatches
+  });
+  group.add(nearMeadow.group);
+
+  // L1 · cheap middle ring; shared material so uniforms update once
+  const midCarpet = createGrassCarpet({
+    coarse,
+    count: coarse ? 13000 : 30000,
+    layout: 'radial',
+    heightAt: valleyHeight,
+    slopeAt: valleySlope,
+    radius: MID_RADIUS,
+    minRadius: 50,
+    maxHeight: 28,
+    maxSlope: 0.58,
+    fadeNear: 42,
+    fadeFar: 170,
+    baseColor: '#2f451e',
+    midColor: '#5f7a3c',
+    tipColor: '#9db263',
+    material: nearCarpet.material
+  });
+  group.add(midCarpet.mesh);
+
+  const midMeadow = createAssetMeadow({
+    coarse,
+    layout: 'valley',
+    heightAt: valleyHeight,
+    slopeAt: valleySlope,
+    radius: MID_RADIUS,
+    minRadius: 50,
+    maxHeight: 28,
+    maxSlope: 0.58,
+    count: coarse ? 2000 : 4000,
+    patches: midPatches,
+    material: nearMeadow.material
+  });
+  group.add(midMeadow.group);
+
+  const carpetMaterial = nearCarpet.material;
+  const meadowMaterial = nearMeadow.material;
+
+  const mists = [
+    createValleyMist({ radius: 126, height: 26, opacity: 0.18 }),
+    createValleyMist({ radius: 190, height: 48, opacity: 0.14 }),
+    createValleyMist({ radius: 268, height: 84, opacity: 0.11 })
+  ];
+  for (const mist of mists) group.add(mist);
+
+  const motes = createMotes({ heightAt: valleyHeight });
+  group.add(motes.points);
+
+  const clouds = createClouds({
+    scene: group,
+    camera,
+    coarse,
+    layers: VALLEY_CLOUD_LAYERS
+  });
+  const birds = createBirds({
+    scene: group,
+    params: {
+      style: 'soaring',
+      heightAt: valleyHeight,
+      gapMin: 18,
+      gapMax: 42,
+      speed: 16,
+      scale: 2.25,
+      radiusMin: 78,
+      radiusMax: 138,
+      altitudeMin: 26,
+      altitudeMax: 44,
+      clearance: 10
+    }
+  });
+
+  const fireflies = createFireflies({
+    count: coarse ? 300 : 520,
+    heightAt: valleyHeight,
+    radius: 150,
+    minRadius: 8,
+    heightMin: 1.8,
+    heightMax: 15.5,
+    sizeScale: 1.55,
+    speedScale: 0.82
+  });
+  // Rendered in a transparent overlay canvas, like the main scene.
+
+  let lastSky = { night: 0, day: 1 };
+
+  const moteAir = new THREE.Vector3();
+  const motePos = new THREE.Vector3();
+
+  return {
+    group,
+    ground: terrain.mesh,
+    terrain,
+    hills: [],
+    carpet: nearCarpet,
+    carpets: [nearCarpet, midCarpet],
+    meadow: nearMeadow,
+    meadows: [nearMeadow, midMeadow],
+    lod: { near: true, mid: true },
+    mists,
+    clouds,
+    motes,
+    birds,
+    fireflies,
+    heightAt: valleyHeight,
+    slopeAt: valleySlope,
+    params: {
+      translucency: 0.16,
+      rootAo: 0.22,
+      haze: 1.0,
+      cloudShadow: 0.9
+    },
+
+    setTime({
+      sunColor,
+      sunDir,
+      sunStrength = 1,
+      haze,
+      moteColor,
+      moteOpacity,
+      night = 0,
+      golden = 0,
+      day = 1
+    }) {
+      const tu = terrain.material.uniforms;
+      tu.uSun.value.copy(sunColor);
+      tu.uSunDir.value.copy(sunDir);
+      tu.uSunStrength.value = sunStrength;
+      if (haze) tu.uHaze.value.copy(haze);
+
+      const cu = carpetMaterial.uniforms;
+      cu.uSun.value.copy(sunColor);
+      cu.uSunDir.value.copy(sunDir);
+      if (haze) cu.uHaze.value.copy(haze);
+
+      const mu = meadowMaterial.uniforms;
+      mu.uSun.value.copy(sunColor);
+      mu.uSunDir.value.copy(sunDir);
+      mu.uSunStrength.value = sunStrength;
+      if (haze) mu.uHaze.value.copy(haze);
+
+      for (const mist of mists) {
+        const u = mist.material.uniforms;
+        if (haze) u.uColor.value.copy(haze);
+        u.uOpacity.value = mist.userData.baseOpacity * (1 - night * 0.35);
+      }
+
+      motes.points.material.color.copy(moteColor);
+      motes.points.material.opacity = moteOpacity;
+      fireflies.setNight(night);
+      clouds.setTime({ golden, night, haze });
+      birds.setTime({ night, day });
+      lastSky = { night, day };
+    },
+
+    update(t, dt, wind) {
+      terrain.material.uniforms.uTime.value = t;
+      terrain.material.uniforms.uHazeAmount.value = this.params.haze;
+      terrain.material.uniforms.uCloudShadow.value = this.params.cloudShadow;
+
+      // Progressive LOD: the camera orbits the valley centre, so its
+      // distance from the origin tells us whether the detailed disc is
+      // still worth drawing. When it is too far, the thick terrain colour
+      // and flower drifts carry the meadow instead.
+      if (camera) {
+        const camR = Math.hypot(camera.position.x, camera.position.z);
+        if (camR < 88) this.lod.near = true;
+        else if (camR > 98) this.lod.near = false;
+        if (camR < 150) this.lod.mid = true;
+        else if (camR > 160) this.lod.mid = false;
+        nearMeadow.group.visible = this.lod.near;
+        nearCarpet.mesh.visible = this.lod.near;
+        midMeadow.group.visible = this.lod.mid;
+        midCarpet.mesh.visible = this.lod.mid;
+      }
+
+      const cu = carpetMaterial.uniforms;
+      cu.uTime.value = t;
+      cu.uStrength.value = wind.breezePower;
+      cu.uWind.value.set(wind.breezeDir.x, 0, wind.breezeDir.y);
+      cu.uLocalStrength.value = Math.min(
+        1,
+        wind.grassStrength * wind.params.grassShaderGain
+      );
+      cu.uLocalWind.value.copy(wind.grassDirSmooth);
+      cu.uSweepA.value.copy(wind.grassA);
+      cu.uSweepB.value.copy(wind.grassB);
+      cu.uRadiusNdc.value = wind.grassRadiusNdc;
+      cu.uAspect.value = wind.aspect;
+
+      const mu = meadowMaterial.uniforms;
+      mu.uTime.value = t;
+      mu.uStrength.value = wind.breezePower;
+      mu.uWind.value.set(wind.breezeDir.x, 0, wind.breezeDir.y);
+      mu.uLocalStrength.value = Math.min(
+        1,
+        wind.grassStrength * wind.params.grassShaderGain
+      );
+      mu.uBendScale.value = wind.params.grassBendScale;
+      mu.uTranslucency.value = this.params.translucency;
+      mu.uRootAo.value = this.params.rootAo;
+      mu.uHazeAmount.value = this.params.haze;
+      mu.uCloudShadow.value = this.params.cloudShadow;
+      mu.uLocalWind.value.copy(wind.grassDirSmooth);
+      mu.uSweepA.value.copy(wind.grassA);
+      mu.uSweepB.value.copy(wind.grassB);
+      mu.uRadiusNdc.value = wind.grassRadiusNdc;
+      mu.uAspect.value = wind.aspect;
+
+      for (const mist of mists) mist.material.uniforms.uTime.value = t;
+      clouds.update(t, dt);
       fireflies.update(t, dt, wind);
       birds.update(t, dt, lastSky);
 
@@ -2924,12 +3855,12 @@ function createDistantWorld(scene, { camera } = {}) {
     }
   };
 }
-return { createWorld, createDistantWorld };
+return { createWorld, createValleyWorld, createDistantWorld };
 } };
 
-defs["js/fireflies.js"] = { deps: ["three", "js/meadow.js"], factory: function (d) {
+defs["src/engine/fireflies.js"] = { deps: ["three", "src/engine/meadow.js"], factory: function (d) {
       const THREE = d["three"].THREE;
-      const { terrainHeight } = d["js/meadow.js"];
+      const { terrainHeight } = d["src/engine/meadow.js"];
 
 
 /* ------------------------------------------------------------------ */
@@ -2947,7 +3878,21 @@ const smoothstep = (a, b, x) => {
   return t * t * (3 - 2 * t);
 };
 
-function createFireflies({ count = 110 } = {}) {
+function createFireflies({
+  count = 110,
+  heightAt = terrainHeight,
+  xRange = 11.0,
+  zNear = 1.0,
+  zFar = -22.0,
+  // Valley-scale fields can use a broad radial footprint instead of the
+  // little camera-facing rectangle used by the old close-up meadow.
+  radius = null,
+  minRadius = 0,
+  heightMin = 0.90,
+  heightMax = 2.60,
+  sizeScale = 1.0,
+  speedScale = 1.0
+} = {}) {
   const positions = new Float32Array(count * 3);
   const phases = new Float32Array(count);
   const speeds = new Float32Array(count);
@@ -2955,11 +3900,26 @@ function createFireflies({ count = 110 } = {}) {
   const flies = [];
 
   for (let i = 0; i < count; i++) {
-    const ax = (Math.random() * 2 - 1) * 11.0;
-    const az = 1.0 - Math.random() * 23.0;
-    const ay = terrainHeight(ax, az) + 0.90 + Math.random() * 1.70;
+    let ax;
+    let az;
+    if (radius != null) {
+      const a = Math.random() * TAU;
+      // sqrt keeps the population evenly spread over the disc rather than
+      // bunching every firefly near the middle.
+      const rr = Math.sqrt(
+        minRadius * minRadius +
+        Math.max(0, radius * radius - minRadius * minRadius) * Math.random()
+      );
+      ax = Math.cos(a) * rr;
+      az = Math.sin(a) * rr;
+    } else {
+      ax = (Math.random() * 2 - 1) * xRange;
+      az = zNear - Math.random() * (zNear - zFar);
+    }
+    const ay = heightAt(ax, az) +
+      heightMin + Math.random() * Math.max(0.01, heightMax - heightMin);
     const phase = Math.random() * TAU;
-    const speed = 0.65 + Math.random() * 0.95;
+    const speed = (0.65 + Math.random() * 0.95) * speedScale;
 
     flies.push({
       ax, ay, az,
@@ -2969,8 +3929,8 @@ function createFireflies({ count = 110 } = {}) {
       vx: 0, vy: 0, vz: 0,
       phase,
       speed,
-      orbit: 0.12 + Math.random() * 0.55,
-      bob: 0.06 + Math.random() * 0.22,
+      orbit: 0.12 + Math.random() * (radius != null ? 0.95 : 0.55),
+      bob: 0.06 + Math.random() * (radius != null ? 0.45 : 0.22),
       spring: 0.30 + Math.random() * 0.35,
       damp: 0.85 + Math.random() * 0.9,
       wind: 0.30 + Math.random() * 0.55
@@ -2998,8 +3958,8 @@ function createFireflies({ count = 110 } = {}) {
     uBreathMin: { value: 0.04 },
     uBreathMax: { value: 1.0 },
     uBreathPower: { value: 2.2 },
-    uSpeedScale: { value: 1.0 },
-    uSizeScale: { value: 1.0 }
+    uSpeedScale: { value: speedScale },
+    uSizeScale: { value: sizeScale }
   };
 
   const params = {
@@ -3007,8 +3967,8 @@ function createFireflies({ count = 110 } = {}) {
     breathMin: 0.04,
     breathMax: 1.0,
     breathPower: 2.2,
-    speedScale: 1.0,
-    sizeScale: 1.0,
+    speedScale,
+    sizeScale,
     windScale: 1.0
   };
 
@@ -3117,7 +4077,7 @@ function createFireflies({ count = 110 } = {}) {
       f.y += f.vy * dt;
       f.z += f.vz * dt;
 
-      const floor = terrainHeight(f.x, f.z) + 0.18;
+      const floor = heightAt(f.x, f.z) + 0.18;
       if (f.y < floor) {
         f.y = floor;
         f.vy = Math.abs(f.vy) * 0.25;
@@ -3144,19 +4104,24 @@ function createFireflies({ count = 110 } = {}) {
 return { createFireflies };
 } };
 
-defs["js/birds.js"] = { deps: ["three"], factory: function (d) {
+defs["src/engine/birds.js"] = { deps: ["three"], factory: function (d) {
       const THREE = d["three"].THREE;
 
 /* ------------------------------------------------------------------ */
 /*  Distant birds                                                      */
 /*                                                                     */
-/*  A small flock crosses the sky every so often. They are real 3D      */
-/*  silhouettes, not screen-space sprites, so the ridge line can hide    */
-/*  them when they dip below the horizon. Wings flap in the vertex       */
-/*  shader; the whole flock shares one InstancedMesh and one draw call. */
+/*  Two flight styles share one InstancedMesh and one draw call:        */
+/*                                                                     */
+/*  · crossing  — the old shallow pass across the skyline.              */
+/*  · soaring   — a flock wheels around the whole valley in 3D. Each    */
+/*                bird sits on its own point of the same curve, so the  */
+/*                formation banks, stretches and turns together.        */
+/*                                                                     */
+/*  Wings flap in the vertex shader. Real depth means the mountain      */
+/*  ridge can hide birds as they pass behind it.                        */
 /* ------------------------------------------------------------------ */
 
-const BIRD_COUNT = 7;
+const BIRD_COUNT = 9;
 const TAU = Math.PI * 2;
 
 function birdGeometry() {
@@ -3177,12 +4142,26 @@ function birdGeometry() {
   return geometry;
 }
 
+function smoothstep(min, max, x) {
+  const t = Math.max(0, Math.min(1, (x - min) / (max - min)));
+  return t * t * (3 - 2 * t);
+}
+
 function createBirds({ scene, params: initial = {} } = {}) {
   const params = {
     gapMin: 28,
     gapMax: 64,
     speed: 6.4,
     scale: 1.0,
+    style: 'crossing',
+    // Soaring parameters. `heightAt` makes the flock climb over the
+    // foothills instead of cutting through them.
+    heightAt: null,
+    radiusMin: 85,
+    radiusMax: 135,
+    altitudeMin: 27,
+    altitudeMax: 43,
+    clearance: 11,
     ...initial
   };
 
@@ -3199,7 +4178,7 @@ function createBirds({ scene, params: initial = {} } = {}) {
   const material = new THREE.ShaderMaterial({
     uniforms: {
       uTime: { value: 0 },
-      uColor: { value: new THREE.Color('#2c3439') },
+      uColor: { value: new THREE.Color('#242c30') },
       uOpacity: { value: 0.0 },
       uFlap: { value: 0.52 }
     },
@@ -3243,25 +4222,37 @@ function createBirds({ scene, params: initial = {} } = {}) {
   const dummy = new THREE.Object3D();
   const offsets = [];
   for (let i = 0; i < BIRD_COUNT; i++) {
+    const rank = Math.ceil(i / 2);
+    const side = i === 0 ? 0 : (i % 2 === 1 ? -1 : 1);
     const row = Math.ceil(i / 3) - 1;
     offsets.push({
+      // old crossing formation
       side: i * 0.95 - 2.6 + (i > 3 ? 0.5 : 0),
       lift: Math.sin(i * 1.7) * 0.32 + row * 0.22,
       depth: Math.sin(i * 2.3) * 1.6,
+      // soaring V: behind the leader along the curve + lateral spread
+      behind: i === 0 ? 0 : rank * 2.7 + (Math.random() - 0.5) * 0.6,
+      lateral: side * rank * 2.25 + (Math.random() - 0.5) * 0.45,
+      soarLift: (i === 0 ? 1.1 : 0.35) + Math.sin(i * 1.4) * 0.55 - rank * 0.08,
       scale: 0.82 + Math.random() * 0.4
     });
   }
 
   const state = {
     active: false,
-    timer: 14 + Math.random() * 12,
+    timer: 10 + Math.random() * 14,
     elapsed: 0,
     dir: -1,
-    speed: params.speed
+    speed: params.speed,
+    style: params.style
   };
 
-  function spawn() {
-    state.active = true;
+  function setFlockAlpha(alpha) {
+    material.uniforms.uOpacity.value = Math.max(0, Math.min(1, alpha));
+  }
+
+  function spawnCrossing() {
+    state.style = 'crossing';
     state.elapsed = 0;
     state.dir = Math.random() < 0.5 ? -1 : 1;
     // Start closer and drift away: perspective plus a small scale ramp
@@ -3277,41 +4268,101 @@ function createBirds({ scene, params: initial = {} } = {}) {
       state.zFar - state.zNear
     );
     state.duration = Math.max(6, path / Math.max(2, params.speed));
+  }
+
+  function spawnSoaring() {
+    state.style = 'soaring';
+    state.elapsed = 0;
+    state.dir = Math.random() < 0.5 ? -1 : 1;
+    state.angle0 = Math.random() * TAU;
+    state.angleSpan = state.dir * (0.78 + Math.random() * 0.52) * TAU;
+    state.radius = params.radiusMin +
+      Math.random() * Math.max(1, params.radiusMax - params.radiusMin);
+    state.centerX = (Math.random() - 0.5) * 16;
+    state.centerZ = (Math.random() - 0.5) * 20;
+    state.baseY = params.altitudeMin +
+      Math.random() * Math.max(1, params.altitudeMax - params.altitudeMin);
+    state.phase = Math.random() * TAU;
+    const path = Math.abs(state.angleSpan) * state.radius;
+    state.duration = Math.max(22, path / Math.max(8, params.speed));
+  }
+
+  function spawn() {
+    state.active = true;
+    if (params.style === 'soaring') spawnSoaring();
+    else spawnCrossing();
     mesh.visible = true;
   }
 
   function rest() {
     state.active = false;
     mesh.visible = false;
-    state.timer = params.gapMin + Math.random() * Math.max(1, params.gapMax - params.gapMin);
+    setFlockAlpha(0);
+    state.timer = params.gapMin +
+      Math.random() * Math.max(1, params.gapMax - params.gapMin);
   }
 
-  function update(t, dt, sky = {}) {
-    material.uniforms.uTime.value = t;
+  const forward = new THREE.Vector3();
+  const right = new THREE.Vector3();
+  const up = new THREE.Vector3();
+  const worldUp = new THREE.Vector3(0, 1, 0);
+  const basis = new THREE.Matrix4();
 
-    const daylight = 1 - Math.min(1, Math.max(0, sky.night || 0));
-    const visible = daylight * (0.75 + 0.25 * (sky.day || 0));
-    material.uniforms.uOpacity.value = 0.62 * visible;
+  function updateSoaring(t, k, daylight, sky) {
+    const eased = k * k * (3 - 2 * k);
+    const angle = state.angle0 + state.angleSpan * eased;
+    const fadeIn = smoothstep(0, 0.10, k);
+    const fadeOut = 1 - smoothstep(0.88, 1, k);
+    const alpha = daylight * (0.78 + 0.22 * (sky.day || 0)) * fadeIn * fadeOut;
 
-    if (!state.active) {
-      state.timer -= dt;
-      if (state.timer <= 0) spawn();
-      return;
+    for (let i = 0; i < BIRD_COUNT; i++) {
+      const o = offsets[i];
+      // Each bird follows its own angle on the same circular course. The
+      // result is a formation that naturally compresses and banks in turns.
+      const radius = Math.max(18, state.radius + o.lateral);
+      const a = angle - state.dir * (o.behind / radius);
+      const x = state.centerX + Math.cos(a) * radius;
+      const z = state.centerZ + Math.sin(a) * radius;
+
+      // A slow thermal-like rise and fall; the terrain clamp keeps the
+      // flock above the foothills while it circles the bowl.
+      const wave = Math.sin(a * 1.7 + state.phase + i * 0.37) * 1.8;
+      let y = state.baseY + o.soarLift + wave;
+      if (params.heightAt) {
+        y = Math.max(y, params.heightAt(x, z) + params.clearance);
+      }
+
+      dummy.position.set(x, y, z);
+
+      // Tangent of the circle at this bird's angle. The bird's local +Z is
+      // its beak, so the basis aligns forward with the tangent.
+      forward.set(-Math.sin(a) * state.dir, 0, Math.cos(a) * state.dir).normalize();
+      right.crossVectors(worldUp, forward).normalize();
+      up.crossVectors(forward, right).normalize();
+      basis.makeBasis(right, up, forward);
+      dummy.quaternion.setFromRotationMatrix(basis);
+
+      // Bank into the turn, with a tiny individual wobble.
+      const bank = state.dir * (0.24 + Math.sin(a * 2 + i * 0.8) * 0.045);
+      dummy.rotateZ(bank);
+
+      const s = params.scale * o.scale;
+      dummy.scale.set(s, s, s);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
     }
 
-    state.elapsed += dt;
-    const k = Math.min(1, state.elapsed / state.duration);
+    setFlockAlpha(0.68 * alpha);
+    mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  function updateCrossing(t, k, daylight, sky) {
     const ease = k * k * (3 - 2 * k);
     const leadX = state.xStart + (state.xEnd - state.xStart) * ease;
     const leadZ = state.zNear + (state.zFar - state.zNear) * ease;
     const leadY = state.yNear + (state.yFar - state.yNear) * ease;
-
-    if (k >= 1) {
-      rest();
-      return;
-    }
-
-    material.uniforms.uOpacity.value = 0.62 * daylight * (0.75 + 0.25 * (sky.day || 0)) * (1 - 0.35 * ease);
+    const fadeIn = smoothstep(0, 0.06, k);
+    const fadeOut = 1 - smoothstep(0.94, 1, k);
 
     for (let i = 0; i < BIRD_COUNT; i++) {
       const o = offsets[i];
@@ -3330,7 +4381,40 @@ function createBirds({ scene, params: initial = {} } = {}) {
       dummy.updateMatrix();
       mesh.setMatrixAt(i, dummy.matrix);
     }
+
+    const alpha = daylight * (0.76 + 0.24 * (sky.day || 0)) * fadeIn * fadeOut;
+    setFlockAlpha(0.64 * alpha);
     mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  function update(t, dt, sky = {}) {
+    material.uniforms.uTime.value = t;
+
+    const daylight = 1 - Math.min(1, Math.max(0, sky.night || 0));
+
+    if (daylight < 0.045) {
+      if (state.active) rest();
+      else mesh.visible = false;
+      setFlockAlpha(0);
+      return;
+    }
+
+    if (!state.active) {
+      state.timer -= dt;
+      if (state.timer <= 0) spawn();
+      return;
+    }
+
+    state.elapsed += dt;
+    const k = Math.min(1, state.elapsed / state.duration);
+
+    if (state.style === 'soaring') updateSoaring(t, k, daylight, sky);
+    else updateCrossing(t, k, daylight, sky);
+
+    if (k >= 1) {
+      rest();
+      return;
+    }
   }
 
   return {
@@ -3341,14 +4425,20 @@ function createBirds({ scene, params: initial = {} } = {}) {
     spawn,
     update,
     setTime({ night = 0, day = 1 } = {}) {
-      material.uniforms.uOpacity.value = 0.62 * (1 - night) * (0.75 + 0.25 * day);
+      material.uniforms.uOpacity.value = 0;
+      if (night < 0.955) {
+        material.uniforms.uOpacity.value = 0.62 * (1 - night) * (0.75 + 0.25 * day);
+        mesh.visible = state.active;
+      } else {
+        mesh.visible = false;
+      }
     }
   };
 }
 return { createBirds };
 } };
 
-defs["js/clouds.js"] = { deps: ["three"], factory: function (d) {
+defs["src/engine/clouds.js"] = { deps: ["three"], factory: function (d) {
       const THREE = d["three"].THREE;
 
 /* ------------------------------------------------------------------ */
@@ -3489,7 +4579,7 @@ function cloudMaterial(texture) {
   });
 }
 
-function createClouds({ scene, camera, coarse = false }) {
+function createClouds({ scene, camera, coarse = false, layers = null }) {
   const textures = [cloudTexture(1.3), cloudTexture(4.7), cloudTexture(9.1)];
   const entries = [];
   const group = new THREE.Group();
@@ -3498,7 +4588,7 @@ function createClouds({ scene, camera, coarse = false }) {
 
   // The clouds live on a ring around the meadow, so orbiting the camera does
   // not run out of sky. Each plane turns to face the camera every frame.
-  const layers = [
+  const defaultLayers = [
     {
       radius: 335,
       y: 30,
@@ -3534,8 +4624,9 @@ function createClouds({ scene, camera, coarse = false }) {
     }
   ];
 
-  for (let li = 0; li < layers.length; li++) {
-    const layer = layers[li];
+  const layerList = layers || defaultLayers;
+  for (let li = 0; li < layerList.length; li++) {
+    const layer = layerList[li];
     for (let i = 0; i < layer.count; i++) {
       const mat = cloudMaterial(textures[(li + i) % textures.length]);
       mat.uniforms.uOpacity.value = layer.opacity;
@@ -3618,7 +4709,7 @@ function createClouds({ scene, camera, coarse = false }) {
 return { createClouds };
 } };
 
-defs["js/tree-assets.js"] = { deps: ["three"], factory: function (d) {
+defs["src/engine/tree-assets.js"] = { deps: ["three"], factory: function (d) {
       const THREE = d["three"].THREE;
 
 /* ------------------------------------------------------------------ */
@@ -4351,7 +5442,7 @@ function createTreeMaterial() {
 return { getLeafAtlas, buildTreeGeometry, createTreeMaterial };
 } };
 
-defs["js/windmill-asset.js"] = { deps: ["three"], factory: function (d) {
+defs["src/engine/windmill-asset.js"] = { deps: ["three"], factory: function (d) {
       const THREE = d["three"].THREE;
 
 /* ------------------------------------------------------------------ */
@@ -4604,11 +5695,11 @@ function buildWindmillAsset() {
 return { buildWindmillAsset };
 } };
 
-defs["js/landmarks.js"] = { deps: ["three", "js/meadow.js", "js/tree-assets.js", "js/windmill-asset.js"], factory: function (d) {
+defs["src/engine/landmarks.js"] = { deps: ["three", "src/engine/meadow.js", "src/engine/tree-assets.js", "src/engine/windmill-asset.js"], factory: function (d) {
       const THREE = d["three"].THREE;
-      const { terrainHeight } = d["js/meadow.js"];
-      const { buildTreeGeometry, createTreeMaterial } = d["js/tree-assets.js"];
-      const { buildWindmillAsset } = d["js/windmill-asset.js"];
+      const { terrainHeight } = d["src/engine/meadow.js"];
+      const { buildTreeGeometry, createTreeMaterial } = d["src/engine/tree-assets.js"];
+      const { buildWindmillAsset } = d["src/engine/windmill-asset.js"];
 
 
 
@@ -5033,10 +6124,10 @@ function createLandmarks() {
 return { createLandmarks };
 } };
 
-defs["js/landmarks-preview.js"] = { deps: ["three", "js/tree-assets.js", "js/windmill-asset.js"], factory: function (d) {
+defs["src/engine/landmarks-preview.js"] = { deps: ["three", "src/engine/tree-assets.js", "src/engine/windmill-asset.js"], factory: function (d) {
       const THREE = d["three"].THREE;
-      const { buildTreeGeometry, createTreeMaterial } = d["js/tree-assets.js"];
-      const { buildWindmillAsset } = d["js/windmill-asset.js"];
+      const { buildTreeGeometry, createTreeMaterial } = d["src/engine/tree-assets.js"];
+      const { buildWindmillAsset } = d["src/engine/windmill-asset.js"];
 
 
 
@@ -5681,7 +6772,7 @@ window.__landmarks = {
 return {};
 } };
 
-defs["js/dandelion.js"] = { deps: ["three"], factory: function (d) {
+defs["src/engine/dandelion.js"] = { deps: ["three"], factory: function (d) {
       const THREE = d["three"].THREE;
 
 /* ================================================================== */
@@ -5717,7 +6808,20 @@ const DANDELION_PARAMS = {
   seedLifeMin: 11,
   seedLifeVar: 9,
   quiverBase: 0.011,
-  quiverGain: 0.085
+  quiverGain: 0.085,
+  // Wild dandelions push up out of the ground in under a second, then
+  // stand for 50-70 seconds before their stem fades. Their seeds also
+  // animate their own opening on the head.
+  wildEmergeMin: 0.62,
+  wildEmergeVar: 0.28,
+  // A fully stripped wild head refills over about 20 seconds. One slot is
+  // reattached at a steady rate, so a partly blown head recovers sooner.
+  wildRecoveryTime: 20,
+  wildLifeMin: 50,
+  wildLifeVar: 20,
+  wildFadeTime: 2.6,
+  wildScatterMin: 0.16,
+  wildScatterVar: 0.14
 };
 
 let seedTexture = null;
@@ -6185,7 +7289,8 @@ class Dandelion {
     autoRegrow = true,
     transient = false,
     position = null,
-    rotationY = 0
+    rotationY = 0,
+    sizeScale = 1
   }) {
     this.scene = scene;
     this.camera = camera;
@@ -6204,10 +7309,27 @@ class Dandelion {
     this._fadeMaterials = plant.fadeMaterials;
     if (position) this.group.position.copy(position);
     this.group.rotation.y = rotationY;
+    // Wild dandelions vary a little in overall size. Scaling the root group
+    // also scales the contact shadows; seed sprites are scaled separately
+    // below because they live outside this group.
+    this.sizeScale = sizeScale;
+    this.group.scale.setScalar(sizeScale);
     scene.add(this.group);
-    this._spawnGrow = transient ? 0.02 : 1;
+    // Seed cleanup bounds are relative to the plant, not to the origin.
+    // Wild dandelions can be planted anywhere in the valley (including the
+    // foothills), so world-space x/z/y limits would cull their seeds on the
+    // very first flight frame.
+    this.basePosition = this.group.position.clone();
+    this._baseY = this.basePosition.y;
+    this._emergeDur = DANDELION_PARAMS.wildEmergeMin +
+      Math.random() * DANDELION_PARAMS.wildEmergeVar;
+    this._emergeT = transient ? 0.001 : 1;
+    this._emergeMix = transient ? 0.001 : 1;
     if (transient) {
-      this.swayGroup.scale.set(1, this._spawnGrow, 1);
+      // Start buried just below the soil and grow straight up out of it.
+      // The root stays fixed, so this reads as an emergence, not a pop-in.
+      this.group.position.y = this._baseY - 0.35;
+      this.swayGroup.scale.setScalar(this._emergeMix);
       for (const m of this._fadeMaterials) {
         m.transparent = true;
         m.opacity = 1;
@@ -6225,8 +7347,11 @@ class Dandelion {
     this._stemGone = false;
     this._life = 0;
     this._scatterClock = 0;
-    this._scatterInterval = 0.06 + Math.random() * 0.08;
-    this._stemLinger = transient ? 11.5 + Math.random() * 2.5 : Infinity;
+    this._scatterInterval = DANDELION_PARAMS.wildScatterMin +
+      Math.random() * DANDELION_PARAMS.wildScatterVar;
+    this._stemLinger = transient
+      ? DANDELION_PARAMS.wildLifeMin + Math.random() * DANDELION_PARAMS.wildLifeVar
+      : Infinity;
 
     // The head is carried by the same pivot as the stem, so its anchor and
     // every seed sitting on it move together as the stem sways.
@@ -6280,6 +7405,12 @@ class Dandelion {
     this.core.position.copy(this.headOrigin).add(new THREE.Vector3(0, 0.02, 0));
     this.core.renderOrder = 1;
     this.core.frustumCulled = false;
+    if (transient) {
+      // The first animation frame decides the real head fill; avoid a
+      // one-frame full-size fluff flash while the plant is still buried.
+      this.core.visible = false;
+      this.core.scale.setScalar(0.001);
+    }
     scene.add(this.core);
 
     // A whisper of per-seed warmth so the head isn't a flat white ball.
@@ -6328,6 +7459,7 @@ class Dandelion {
       const seed = this._takeSeed();
       if (!seed) break;
       this._attachSeed(seed, i, true);
+      // The plant is already full size; only its seeds grow out on the head.
       seed.delay = 0.2 + Math.random() * 1.15;
       seed.growDur = 1.0 + Math.random() * 0.5;
     }
@@ -6426,13 +7558,13 @@ class Dandelion {
     const e = easeOutCubic(seed.grow);
     seed.center
       .copy(this.headOrigin)
-      .addScaledVector(seed.dir, seed.scale * e * 0.5);
+      .addScaledVector(seed.dir, seed.scale * e * this.sizeScale * this._emergeMix * 0.5);
 
     // Match the size it had on the head at the instant of release, then let
     // it settle into its own flight size. A slight ±10% spread makes the
     // drifting group read as a volume instead of a flat sheet of clones.
-    seed.flightFrom = seed.scale * e;
-    seed.flightScale = 0.90 + Math.random() * 0.18;
+    seed.flightFrom = seed.scale * e * this.sizeScale * this._emergeMix;
+    seed.flightScale = this.sizeScale * (0.90 + Math.random() * 0.18);
 
     if (gentle) {
       // A planted dandelion lets its seeds go one by one, without a gust:
@@ -6514,7 +7646,7 @@ class Dandelion {
     this._shadowFactor = shadowFactor;
     for (const shadow of this.shadows) {
       shadow.material.opacity =
-        shadow.userData.baseOpacity * shadowFactor * this._stemOpacity;
+        shadow.userData.baseOpacity * shadowFactor * this._stemOpacity * this._emergeMix;
     }
   }
 
@@ -6540,11 +7672,16 @@ class Dandelion {
     this._life += dt;
 
     if (!this._stemFading) {
-      if (this._life > 2.2) {
+      // Only let the plant scatter seeds on its own once the head is full
+      // again. After a gust strips it, recovery gets priority for the next
+      // ~20 seconds; then natural release resumes. Gusts can still blow
+      // seeds away at any moment.
+      if (this._life > 2.2 && this.headCount >= this.headSlots) {
         this._scatterClock += dt;
         if (this._scatterClock >= this._scatterInterval && this.headCount > 0) {
           this._scatterClock = 0;
-          this._scatterInterval = 0.06 + Math.random() * 0.08;
+          this._scatterInterval = this.params.wildScatterMin +
+            Math.random() * this.params.wildScatterVar;
           let pick = null;
           let seen = 0;
           for (const seed of this.seeds) {
@@ -6563,11 +7700,11 @@ class Dandelion {
     }
 
     if (this._stemFading) {
-      this._stemOpacity = Math.max(0, this._stemOpacity - dt / 1.25);
+      this._stemOpacity = Math.max(0, this._stemOpacity - dt / this.params.wildFadeTime);
       for (const m of this._fadeMaterials) m.opacity = this._stemOpacity;
       for (const shadow of this.shadows) {
         shadow.material.opacity =
-          shadow.userData.baseOpacity * this._shadowFactor * this._stemOpacity;
+          shadow.userData.baseOpacity * this._shadowFactor * this._stemOpacity * this._emergeMix;
       }
       if (this._stemOpacity <= 0.001) {
         this._stemGone = true;
@@ -6608,14 +7745,20 @@ class Dandelion {
     this._shadowFactor = at.shadowFactor;
     for (const shadow of this.shadows) {
       shadow.material.opacity =
-        shadow.userData.baseOpacity * at.shadowFactor * this._stemOpacity;
+        shadow.userData.baseOpacity * at.shadowFactor * this._stemOpacity * this._emergeMix;
     }
 
     const wind = this.wind;
 
-    if (this.transient && this._spawnGrow < 1) {
-      this._spawnGrow = Math.min(1, this._spawnGrow + dt / 0.65);
-      this.swayGroup.scale.set(1, Math.max(0.02, easeOutCubic(this._spawnGrow)), 1);
+    if (this.transient && this._emergeT < 1) {
+      this._emergeT = Math.min(
+        1,
+        this._emergeT + dt / Math.max(0.01, this._emergeDur)
+      );
+      this._emergeMix = Math.max(0.001, easeOutCubic(this._emergeT));
+      this.swayGroup.scale.setScalar(this._emergeMix);
+      this.group.position.y = this._baseY - 0.35 * (1 - this._emergeMix);
+      this.group.updateMatrixWorld(true);
     }
 
     // How much air is actually moving over the head right now?
@@ -6647,7 +7790,8 @@ class Dandelion {
       swayZ = headAir.z / airLen;
     }
     const idle = 0.004 + 0.004 * (0.5 + 0.5 * Math.sin(t * 0.41 + 0.6));
-    const amplitude = idle + 0.028 * Math.min(1, headMag);
+    const amplitude = idle + 0.028 * Math.min(1, headMag) +
+      (wind.breezePower || 0) * 0.012;
     const targetRotX = swayZ * amplitude;
     const targetRotZ = -swayX * amplitude;
     const follow = 1 - Math.exp(-3.2 * dt);
@@ -6659,6 +7803,8 @@ class Dandelion {
     this.headCenter.copy(HEAD_CENTER).applyMatrix4(this.swayGroup.matrixWorld);
 
     if (this.transient && !this._stemGone) this._updateTransient(dt);
+
+    let openHead = 0;
 
     for (let i = 0; i < this.seeds.length; i++) {
       const seed = this.seeds[i];
@@ -6686,8 +7832,9 @@ class Dandelion {
           this.mesh.setMatrixAt(i, this._zero);
           continue;
         }
+        openHead += e;
 
-        const scale = seed.scale * e * this._stemOpacity;
+        const scale = seed.scale * e * this._stemOpacity * this.sizeScale * this._emergeMix;
         const half = scale * 0.5;
 
         // the seed is rooted at the receptacle; its fluff points outward
@@ -6736,7 +7883,10 @@ class Dandelion {
         const remain = seed.life - seed.age;
         let fade = 1;
         if (remain < 2.2) fade = smoothstep(0, 2.2, remain);
-        if (seed.center.y < 0.3) fade *= smoothstep(0.02, 0.3, seed.center.y);
+        const baseY = this.basePosition.y;
+        if (seed.center.y < baseY + 0.3) {
+          fade *= smoothstep(baseY + 0.02, baseY + 0.3, seed.center.y);
+        }
         if (fade <= 0.01) {
           this.mesh.setMatrixAt(i, this._zero);
           this._releaseSeed(seed);
@@ -6744,11 +7894,11 @@ class Dandelion {
         }
 
         if (
-          seed.center.y < 0 ||
-          Math.abs(seed.center.x) > 34 ||
-          seed.center.z > 7 ||
-          seed.center.z < -40 ||
-          seed.center.y > 16
+          seed.center.y < baseY - 0.8 ||
+          Math.abs(seed.center.x - this.basePosition.x) > 34 ||
+          seed.center.z - this.basePosition.z > 7 ||
+          seed.center.z - this.basePosition.z < -40 ||
+          seed.center.y > baseY + 16
         ) {
           this.mesh.setMatrixAt(i, this._zero);
           this._releaseSeed(seed);
@@ -6788,12 +7938,19 @@ class Dandelion {
       }
     }
 
-    // ---- and quietly grows them back (auto-regrow plants only) --------
-    if (this.autoRegrow && this.freeSlots.length > 0) {
+    // ---- seeds quietly grow back on the head ------------------------
+    if (this.autoRegrow && this.freeSlots.length > 0 && !this._stemFading) {
       this.regrowTimer -= dt;
-      if (this.regrowTimer <= 0) {
+      const interval = this.transient
+        ? this.params.wildRecoveryTime / Math.max(1, this.headSlots)
+        : this.params.regrowMin + Math.random() * this.params.regrowVar;
+      // Carry the overshoot instead of resetting to a full interval, so a
+      // 30 fps / 60 fps frame cadence still refills the head in ~20 s.
+      while (this.regrowTimer <= 0 && this.freeSlots.length > 0) {
+        const before = this.freeSlots.length;
         this._regrowOne();
-        this.regrowTimer = this.params.regrowMin + Math.random() * this.params.regrowVar;
+        if (this.freeSlots.length === before) break;
+        this.regrowTimer += interval;
       }
     } else {
       this.regrowTimer = 0.2;
@@ -6805,17 +7962,19 @@ class Dandelion {
       this.finished = true;
     }
 
-    // the soft inner fluff fades with the head
-    const fill = this.headCount / this.headSlots;
+    // The soft inner fluff follows the seeds that have actually opened,
+    // not the slot count, so the head fills gradually as the seeds grow.
+    const fill = openHead / this.headSlots;
     if (fill > 0.015) {
       this.core.visible = true;
       this.core.quaternion.copy(this.camera.quaternion);
       this.core.position.copy(this.headOrigin);
       this.core.position.y += 0.02;
       this.core.position.addScaledVector(this.headLocalAir, 0.006);
-      const size = 1.18 + fill * 0.28;
-      this.core.scale.setScalar(size);
-      this.core.material.opacity = (0.32 + fill * 0.5) * this._timeCoreOpacity * this._stemOpacity * Math.min(1, this._spawnGrow * 2);
+      const size = (1.18 + fill * 0.28) * this.sizeScale * this._emergeMix;
+      this.core.scale.setScalar(Math.max(0.001, size));
+      this.core.material.opacity = (0.32 + fill * 0.5) * this._timeCoreOpacity *
+        this._stemOpacity * this._emergeMix;
     } else {
       this.core.visible = false;
     }
@@ -6824,24 +7983,24 @@ class Dandelion {
 return { dandelionAtmosphere, DANDELION_PARAMS, Dandelion };
 } };
 
-defs["js/dandelion-field.js"] = { deps: ["three", "js/dandelion.js"], factory: function (d) {
+defs["src/engine/dandelion-field.js"] = { deps: ["three", "src/engine/dandelion.js"], factory: function (d) {
       const THREE = d["three"].THREE;
-      const { Dandelion } = d["js/dandelion.js"];
+      const { Dandelion } = d["src/engine/dandelion.js"];
 
 
 /* ------------------------------------------------------------------ */
 /*  Wild dandelions                                                    */
 /*                                                                     */
-/*  Planted dandelions have fewer seeds, never regrow, release their    */
-/*  seeds slowly on their own, and let their stem fade after a short    */
-/*  life. They are never created automatically.                         */
+/*  Planted dandelions have fewer seeds, release them slowly on their   */
+/*  own, and regrow a stripped head over about 20 seconds. Their stem   */
+/*  fades after a short life. They are never created automatically.     */
 /* ------------------------------------------------------------------ */
 
 const WILD_SLOTS = 120;
 const WILD_SEEDS = 200;
 
 class DandelionField {
-  constructor({ scene, camera, renderer, wind, maxPlants = 10 }) {
+  constructor({ scene, camera, renderer, wind, maxPlants = 15 }) {
     this.scene = scene;
     this.camera = camera;
     this.renderer = renderer;
@@ -6853,6 +8012,33 @@ class DandelionField {
 
   get count() {
     return this.plants.length;
+  }
+
+  setMaxPlants(maxPlants) {
+    this.maxPlants = Math.max(1, Math.floor(maxPlants) || 1);
+    while (this.plants.length > this.maxPlants) {
+      this._remove(this.plants.shift());
+    }
+  }
+
+  /** Remove the nearest plant inside a radius; used when the old tree
+   *  consumes its first offering and turns it into a bloom. */
+  removeNearest(x, z, radius) {
+    let best = null;
+    let bestDist = radius;
+    for (const plant of this.plants) {
+      const p = plant.group.position;
+      const dist = Math.hypot(p.x - x, p.z - z);
+      if (dist <= bestDist) {
+        best = plant;
+        bestDist = dist;
+      }
+    }
+    if (best) {
+      this._remove(best);
+      return true;
+    }
+    return false;
   }
 
   stats() {
@@ -6888,10 +8074,11 @@ class DandelionField {
       wind: this.wind,
       headSlots: WILD_SLOTS,
       maxSeeds: WILD_SEEDS,
-      autoRegrow: false,
+      autoRegrow: true,
       transient: true,
       position: point.clone(),
-      rotationY: Math.random() * Math.PI * 2
+      rotationY: Math.random() * Math.PI * 2,
+      sizeScale: 0.8 + Math.random() * 0.4
     });
     this.plants.push(plant);
     this._spawnRipple(point);
@@ -6962,7 +8149,7 @@ class DandelionField {
 return { DandelionField };
 } };
 
-defs["js/orbit.js"] = { deps: ["three"], factory: function (d) {
+defs["src/engine/orbit.js"] = { deps: ["three"], factory: function (d) {
       const THREE = d["three"].THREE;
 
 /* ------------------------------------------------------------------ */
@@ -6979,7 +8166,18 @@ class OrbitRig {
     minRadius = 2.5,
     maxRadius = 32,
     minPitch = 0,
-    maxPitch = Math.PI / 2 - 0.02
+    maxPitch = Math.PI / 2 - 0.02,
+    freeLook = false,
+    lookPitchMin = -1.35,
+    lookPitchMax = 1.35,
+    lookPitch = 0,
+    lookYaw = 0,
+    touchOrbit = false,
+    groundAt = null,
+    clearance = 1.8,
+    fov = null,
+    fovMin = 24,
+    fovMax = 78
   } = {}) {
     this.camera = camera;
     this.canvas = canvas;
@@ -6988,6 +8186,18 @@ class OrbitRig {
     this.maxRadius = maxRadius;
     this.minPitch = minPitch;
     this.maxPitch = maxPitch;
+    this.freeLook = !!freeLook;
+    this.enabled = true;
+    this.touchOrbit = !!touchOrbit;
+    this.lookPitchMin = lookPitchMin;
+    this.lookPitchMax = lookPitchMax;
+    this.lookPitch = THREE.MathUtils.clamp(lookPitch, lookPitchMin, lookPitchMax);
+    this.lookYaw = lookYaw;
+    this.groundAt = groundAt;
+    this.clearance = clearance;
+    this.fov = fov == null ? camera.fov : fov;
+    this.fovMin = fovMin;
+    this.fovMax = fovMax;
 
     this.radius = 9.4;
     this.yaw = 0;
@@ -7002,6 +8212,7 @@ class OrbitRig {
     this.lastY = 0;
     this.pinchStart = 0;
     this.pinchRadius = this.radius;
+    this.pinchFov = this.fov;
     this.lastCentroid = { x: 0, y: 0 };
     this.onDragStart = null;
     this.onDragEnd = null;
@@ -7011,6 +8222,7 @@ class OrbitRig {
 
   _bind() {
     const down = (e) => {
+      if (!this.enabled) return;
       if (e.target !== this.canvas) return;
       if (e.pointerType === 'mouse' && e.button !== 0) return;
 
@@ -7027,21 +8239,20 @@ class OrbitRig {
         this.startY = e.clientY;
         this.lastX = e.clientX;
         this.lastY = e.clientY;
-      } else if (this.pointers.size === 2) {
+      } else {
+        // Two or more fingers revolve / pinch together. Resetting the
+        // baseline on every finger-count change keeps a third finger from
+        // making the camera jump when another finger lifts.
         this.pending = false;
         this._beginDrag();
-        const pts = [...this.pointers.values()];
-        this.pinchStart = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-        this.pinchRadius = this.radius;
-        this.lastCentroid = {
-          x: (pts[0].x + pts[1].x) * 0.5,
-          y: (pts[0].y + pts[1].y) * 0.5
-        };
+        this.pinchStart = 0;
+        this.lastCentroid = null;
         e.preventDefault();
       }
     };
 
     const move = (e) => {
+      if (!this.enabled) return;
       if (!this.pointers.has(e.pointerId)) return;
       this.pointers.set(e.pointerId, {
         x: e.clientX,
@@ -7051,44 +8262,61 @@ class OrbitRig {
 
       if (this.pointers.size >= 2) {
         e.preventDefault();
-        const pts = [...this.pointers.values()];
-        const centroid = {
-          x: (pts[0].x + pts[1].x) * 0.5,
-          y: (pts[0].y + pts[1].y) * 0.5
-        };
+        const g = this._gesture();
         if (!this.pinchStart) {
           this._beginDrag();
-          this.pinchStart = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+          this.pinchStart = Math.max(g.spread, 1);
           this.pinchRadius = this.radius;
-          this.lastCentroid = centroid;
+          this.pinchFov = this.fov;
+          this.lastCentroid = { x: g.cx, y: g.cy };
         }
 
-        const dx = centroid.x - this.lastCentroid.x;
-        const dy = centroid.y - this.lastCentroid.y;
-        this.lastCentroid = centroid;
+        const dx = g.cx - this.lastCentroid.x;
+        const dy = g.cy - this.lastCentroid.y;
+        this.lastCentroid = { x: g.cx, y: g.cy };
         if (dx || dy) {
-          this.yaw -= dx * 0.0032;
-          if (this.yaw > Math.PI) this.yaw -= Math.PI * 2;
-          else if (this.yaw < -Math.PI) this.yaw += Math.PI * 2;
-          this.pitch = THREE.MathUtils.clamp(this.pitch - dy * 0.0030, this.minPitch, this.maxPitch);
+          if (this.freeLook) {
+            this.lookYaw -= dx * 0.0032;
+            if (this.lookYaw > Math.PI) this.lookYaw -= Math.PI * 2;
+            else if (this.lookYaw < -Math.PI) this.lookYaw += Math.PI * 2;
+            this.lookPitch = THREE.MathUtils.clamp(
+              this.lookPitch - dy * 0.0030, this.lookPitchMin, this.lookPitchMax
+            );
+          } else {
+            this.yaw -= dx * 0.0032;
+            if (this.yaw > Math.PI) this.yaw -= Math.PI * 2;
+            else if (this.yaw < -Math.PI) this.yaw += Math.PI * 2;
+            this.pitch = THREE.MathUtils.clamp(this.pitch - dy * 0.0030, this.minPitch, this.maxPitch);
+          }
           this.hasView = true;
         }
 
-        const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-        if (this.pinchStart > 1 && dist > 1) {
-          this.radius = THREE.MathUtils.clamp(
-            this.pinchRadius * (this.pinchStart / dist),
-            this.minRadius,
-            this.maxRadius
-          );
+        // Average distance from the finger centroid: works the same for
+        // two fingers and stays smooth when a third one joins or leaves.
+        if (this.pinchStart > 1 && g.spread > 1) {
+          const ratio = this.pinchStart / g.spread;
+          if (this.freeLook) {
+            this.fov = THREE.MathUtils.clamp(
+              this.pinchFov * ratio,
+              this.fovMin,
+              this.fovMax
+            );
+          } else {
+            this.radius = THREE.MathUtils.clamp(
+              this.pinchRadius * ratio,
+              this.minRadius,
+              this.maxRadius
+            );
+          }
           this.hasView = true;
         }
         this._apply();
         return;
       }
 
-      // One touch is wind, not camera. The wind field owns that gesture.
-      if (e.pointerType === 'touch') return;
+      // On mobile with the joystick UI, one finger owns the camera; desktop
+      // still gives one-finger wind to the wind field.
+      if (e.pointerType === 'touch' && !this.touchOrbit) return;
 
       if (this.pending) {
         if (Math.hypot(e.clientX - this.startX, e.clientY - this.startY) < 10) return;
@@ -7104,37 +8332,56 @@ class OrbitRig {
       const dy = e.clientY - this.lastY;
       this.lastX = e.clientX;
       this.lastY = e.clientY;
-      this.yaw -= dx * 0.0032;
-      if (this.yaw > Math.PI) this.yaw -= Math.PI * 2;
-      else if (this.yaw < -Math.PI) this.yaw += Math.PI * 2;
-      this.pitch = THREE.MathUtils.clamp(this.pitch - dy * 0.0030, this.minPitch, this.maxPitch);
+      if (this.freeLook) {
+        this.lookYaw -= dx * 0.0032;
+        if (this.lookYaw > Math.PI) this.lookYaw -= Math.PI * 2;
+        else if (this.lookYaw < -Math.PI) this.lookYaw += Math.PI * 2;
+        this.lookPitch = THREE.MathUtils.clamp(
+          this.lookPitch - dy * 0.0030, this.lookPitchMin, this.lookPitchMax
+        );
+      } else {
+        this.yaw -= dx * 0.0032;
+        if (this.yaw > Math.PI) this.yaw -= Math.PI * 2;
+        else if (this.yaw < -Math.PI) this.yaw += Math.PI * 2;
+        this.pitch = THREE.MathUtils.clamp(this.pitch - dy * 0.0030, this.minPitch, this.maxPitch);
+      }
       this.hasView = true;
       this._apply();
     };
 
     const up = (e) => {
+      if (!this.enabled) return;
       if (!this.pointers.has(e.pointerId)) return;
       this.pointers.delete(e.pointerId);
       try { this.canvas.releasePointerCapture(e.pointerId); } catch (err) { /* noop */ }
 
       if (this.dragging && this.pointers.size < 2) this._endDrag();
-      if (this.pointers.size === 0) {
-        this.pending = false;
-        this.pinchStart = 0;
-      } else {
-        this.pinchStart = 0;
-      }
+      // If two or more fingers remain, the next move re-samples the centroid
+      // and spread before applying rotation, so lifting one of three fingers
+      // does not snap the camera sideways.
+      this.pinchStart = 0;
+      this.lastCentroid = null;
+      if (this.pointers.size === 0) this.pending = false;
     };
 
     const wheel = (e) => {
+      if (!this.enabled) return;
       if (e.target !== this.canvas) return;
       e.preventDefault();
       if (!this.hasView) this.syncFromCamera();
-      this.radius = THREE.MathUtils.clamp(
-        this.radius * Math.exp(e.deltaY * 0.0012),
-        this.minRadius,
-        this.maxRadius
-      );
+      if (this.freeLook) {
+        this.fov = THREE.MathUtils.clamp(
+          this.fov * Math.exp(e.deltaY * 0.0012),
+          this.fovMin,
+          this.fovMax
+        );
+      } else {
+        this.radius = THREE.MathUtils.clamp(
+          this.radius * Math.exp(e.deltaY * 0.0012),
+          this.minRadius,
+          this.maxRadius
+        );
+      }
       this.hasView = true;
       this._apply();
     };
@@ -7147,18 +8394,47 @@ class OrbitRig {
     this.canvas.addEventListener('wheel', wheel, { passive: false });
   }
 
+  setEnabled(on) {
+    this.enabled = !!on;
+    if (!this.enabled) {
+      this.pointers.clear();
+      this.pending = false;
+      this.pinchStart = 0;
+      this.lastCentroid = null;
+      this._endDrag();
+    }
+  }
+
+  _gesture() {
+    const pts = [...this.pointers.values()];
+    const count = pts.length;
+    let cx = 0;
+    let cy = 0;
+    for (const p of pts) {
+      cx += p.x;
+      cy += p.y;
+    }
+    cx /= count;
+    cy /= count;
+    let spread = 0;
+    for (const p of pts) {
+      spread += Math.hypot(p.x - cx, p.y - cy);
+    }
+    return { cx, cy, spread: spread / count, count };
+  }
+
   _beginDrag() {
     if (this.dragging) return;
     if (!this.hasView) this.syncFromCamera();
     this.dragging = true;
-    document.body.classList.add('orbit-dragging');
+    this.onDraggingChange?.(true);
     this.onDragStart?.();
   }
 
   _endDrag() {
     if (!this.dragging) return;
     this.dragging = false;
-    document.body.classList.remove('orbit-dragging');
+    this.onDraggingChange?.(false);
     this.onDragEnd?.();
   }
 
@@ -7180,13 +8456,29 @@ class OrbitRig {
   }
 
   _apply() {
+    if (this.freeLook && this.camera.fov !== this.fov) {
+      this.camera.fov = this.fov;
+      this.camera.updateProjectionMatrix();
+    }
     const cp = Math.cos(this.pitch);
     this.camera.position.set(
       this.target.x + this.radius * Math.sin(this.yaw) * cp,
       this.target.y + this.radius * Math.sin(this.pitch),
       this.target.z + this.radius * Math.cos(this.yaw) * cp
     );
+    if (this.groundAt) {
+      const ground = this.groundAt(this.camera.position.x, this.camera.position.z);
+      const floor = ground + this.clearance;
+      if (this.camera.position.y < floor) this.camera.position.y = floor;
+    }
     this.camera.lookAt(this.target);
+    if (this.freeLook) {
+      // Look around from the current standpoint instead of orbiting the
+      // camera around the valley while the view is tilted. The position is
+      // fixed by yaw/pitch above; this adds the view yaw and elevation.
+      if (this.lookYaw) this.camera.rotateY(this.lookYaw);
+      if (this.lookPitch) this.camera.rotateX(this.lookPitch);
+    }
     this.camera.updateMatrixWorld();
   }
 }
@@ -7194,9 +8486,2645 @@ class OrbitRig {
 return { OrbitRig };
 } };
 
-defs["js/sky.js"] = { deps: ["three", "js/dandelion.js"], factory: function (d) {
+defs["src/engine/player.js"] = { deps: ["three"], factory: function (d) {
       const THREE = d["three"].THREE;
-      const { dandelionAtmosphere } = d["js/dandelion.js"];
+
+/* ------------------------------------------------------------------ */
+/*  Tumbleweed · third-person protagonist                              */
+/*                                                                     */
+/*  A procedurally tangled ball of dry twigs that rolls across the     */
+/*  valley. Desktop only: WASD moves it relative to the camera yaw.    */
+/*  The orbit rig still owns the camera; this module only supplies a   */
+/*  focus point for it to follow, so look / zoom / planting gestures   */
+/*  stay exactly as they were before.                                  */
+/* ------------------------------------------------------------------ */
+
+const TAU = Math.PI * 2;
+const UP = new THREE.Vector3(0, 1, 0);
+const MOVE_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD']);
+
+const BALL_RADIUS = 0.64;     // ground-contact radius used by the roll
+const CENTER_HEIGHT = 0.64;   // root sits this far above the terrain
+const FOCUS_LIFT = 0.45;      // camera looks slightly above the centre
+const MAX_SPEED = 6.2;        // m/s
+const ACCEL = 9.0;
+const BRAKE = 5.5;
+const MAX_RADIUS = 118;       // keep inside the meadow / lower foothills
+const MAX_HEIGHT = 30;
+const MAX_SLOPE = 0.44;
+
+// M1 lift: a gentle, stamina-free updraft. Values are deliberately soft so
+// the camera can follow without sudden vertical jumps.
+const MAX_ALTITUDE = 25;
+const LIFT_CHARGE = 0.4;
+const LIFT_ACCEL = 7;
+const MAX_RISE = 3.6;
+const GRAVITY = 3.8;
+const MAX_FALL = 7;
+
+const TWIG_COUNT = 150;
+const TWIG_COLORS = ['#8a6b40', '#9c7c4c', '#75552f', '#a98a5c', '#6b4d2c'];
+
+function makeTwigGeometry() {
+  const half = 0.38;
+  const curve = new THREE.QuadraticBezierCurve3(
+    new THREE.Vector3(-half, 0.05, 0),
+    new THREE.Vector3(0, 0.19, 0.02),
+    new THREE.Vector3(half, 0, -0.03)
+  );
+  return new THREE.TubeGeometry(curve, 8, 0.016, 4, false);
+}
+
+function makeShadowTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  const grad = ctx.createRadialGradient(64, 64, 4, 64, 64, 62);
+  grad.addColorStop(0, 'rgba(44, 35, 20, 0.58)');
+  grad.addColorStop(0.55, 'rgba(44, 35, 20, 0.30)');
+  grad.addColorStop(1, 'rgba(44, 35, 20, 0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 128, 128);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+class Tumbleweed {
+  constructor({ scene, world, position = new THREE.Vector3(0, 0, 1.2) }) {
+    this.world = world;
+    this.keys = new Set();
+    this.externalMove = new THREE.Vector2();
+    this.velocity = new THREE.Vector3();
+    this.speed = 0;
+    this.baseY = 0;
+    this.started = false;
+    this.liftEnabled = false;
+    this.liftHeld = false;
+    this.liftCharge = 0;
+    this.verticalVelocity = 0;
+    this.airborne = false;
+    this._rollAxis = new THREE.Vector3();
+    this._shadowNormal = new THREE.Vector3();
+
+    this.root = new THREE.Group();
+    this.spin = new THREE.Group();
+    this.root.add(this.spin);
+    scene.add(this.root);
+
+    this._buildBody();
+    this._buildShadow(scene);
+    this._buildGust(scene);
+    this._bindKeys();
+
+    this.snapTo(position.x, position.z);
+  }
+
+  _buildBody() {
+    const geometry = makeTwigGeometry();
+    const material = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.94,
+      metalness: 0,
+      flatShading: false
+    });
+
+    const mesh = new THREE.InstancedMesh(geometry, material, TWIG_COUNT);
+    mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    mesh.frustumCulled = false;
+
+    const dummy = new THREE.Object3D();
+    const dir = new THREE.Vector3();
+    const color = new THREE.Color();
+
+    for (let i = 0; i < TWIG_COUNT; i++) {
+      // Spread the twigs through a thick shell rather than a solid ball,
+      // so the silhouette stays open and the valley shows through it.
+      const u = Math.random() * 2 - 1;
+      const phi = Math.random() * TAU;
+      const s = Math.sqrt(1 - u * u);
+      dir.set(s * Math.cos(phi), u, s * Math.sin(phi));
+      const shell = 0.14 + Math.random() * 0.34;
+      dummy.position.copy(dir).multiplyScalar(shell);
+      dummy.rotation.set(Math.random() * TAU, Math.random() * TAU, Math.random() * TAU);
+      const scale = 0.62 + Math.random() * 0.62;
+      dummy.scale.set(scale * (0.9 + Math.random() * 0.25), scale, scale);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+
+      color.set(TWIG_COLORS[i % TWIG_COLORS.length]);
+      color.offsetHSL(0, 0, (Math.random() - 0.5) * 0.08);
+      mesh.setColorAt(i, color);
+    }
+
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    this.spin.add(mesh);
+    this.body = mesh;
+  }
+
+  _buildShadow(scene) {
+    const geometry = new THREE.PlaneGeometry(2.1, 2.1);
+    geometry.rotateX(-Math.PI / 2);
+    const material = new THREE.MeshBasicMaterial({
+      map: makeShadowTexture(),
+      transparent: true,
+      depthWrite: false,
+      opacity: 0.52,
+      toneMapped: false
+    });
+    material.polygonOffset = true;
+    material.polygonOffsetFactor = -2;
+    material.polygonOffsetUnits = -2;
+
+    this.shadow = new THREE.Mesh(geometry, material);
+    this.shadow.renderOrder = 2;
+    scene.add(this.shadow);
+  }
+
+  _buildGust(scene) {
+    const geometry = new THREE.RingGeometry(0.35, 0.5, 48);
+    geometry.rotateX(-Math.PI / 2);
+    const material = new THREE.MeshBasicMaterial({
+      color: '#d9c7a2',
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      toneMapped: false
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.visible = false;
+    mesh.renderOrder = 2;
+    scene.add(mesh);
+    this.gust = { mesh, age: 0, life: 0.9, active: false };
+  }
+
+  _spawnGust() {
+    if (!this.gust) return;
+    const x = this.root.position.x;
+    const z = this.root.position.z;
+    const ground = this._groundAt(x, z);
+    const g = this.gust;
+    g.mesh.position.set(x, ground + 0.035, z);
+    g.mesh.scale.setScalar(0.65);
+    g.mesh.material.opacity = 0.55;
+    g.mesh.visible = true;
+    g.age = 0;
+    g.active = true;
+  }
+
+  _updateGust(dt) {
+    const g = this.gust;
+    if (!g || !g.active) return;
+    g.age += dt;
+    const t = Math.min(1, g.age / g.life);
+    g.mesh.scale.setScalar(0.65 + t * 2.4);
+    g.mesh.material.opacity = 0.55 * (1 - t);
+    if (t >= 1) {
+      g.active = false;
+      g.mesh.visible = false;
+    }
+  }
+
+  _bindKeys() {
+    const isTyping = (target) => {
+      if (!target) return false;
+      const tag = target.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable;
+    };
+
+    this._onKeyDown = (e) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (isTyping(e.target)) return;
+      if (!MOVE_KEYS.has(e.code)) return;
+      e.preventDefault();
+      this.keys.add(e.code);
+    };
+
+    this._onKeyUp = (e) => {
+      if (!MOVE_KEYS.has(e.code)) return;
+      this.keys.delete(e.code);
+    };
+
+    this._clearKeys = () => this.keys.clear();
+
+    window.addEventListener('keydown', this._onKeyDown);
+    window.addEventListener('keyup', this._onKeyUp);
+    window.addEventListener('blur', this._clearKeys);
+    document.addEventListener('visibilitychange', this._clearKeys);
+  }
+
+  _groundAt(x, z) {
+    return this.world.heightAt ? this.world.heightAt(x, z) : 0;
+  }
+
+  _walkable(x, z) {
+    if (Math.hypot(x, z) > MAX_RADIUS) return false;
+    const height = this._groundAt(x, z);
+    if (height > MAX_HEIGHT) return false;
+    if (!this.airborne && this.world.slopeAt && this.world.slopeAt(x, z) > MAX_SLOPE) {
+      return false;
+    }
+    return true;
+  }
+
+  /** Place the tumbleweed on the terrain without any smoothing. */
+  snapTo(x, z) {
+    this.baseY = this._groundAt(x, z) + CENTER_HEIGHT;
+    this.root.position.set(x, this.baseY, z);
+    this.velocity.set(0, 0, 0);
+    this.speed = 0;
+    this.verticalVelocity = 0;
+    this.airborne = false;
+    this.liftCharge = 0;
+    this.started = true;
+    this._updateShadow();
+  }
+
+  setLiftEnabled(on) {
+    this.liftEnabled = !!on;
+    if (!this.liftEnabled) {
+      this.liftHeld = false;
+      this.liftCharge = 0;
+    }
+  }
+
+  setLiftHeld(on) {
+    this.liftHeld = !!on && this.liftEnabled;
+    if (!this.liftHeld) this.liftCharge = 0;
+  }
+
+  get altitude() {
+    const ground = this._groundAt(this.root.position.x, this.root.position.z);
+    return Math.max(0, this.root.position.y - (ground + CENTER_HEIGHT));
+  }
+
+  /** Point the third-person camera should orbit. */
+  focusPoint(out = new THREE.Vector3()) {
+    return out.set(
+      this.root.position.x,
+      this.root.position.y + FOCUS_LIFT,
+      this.root.position.z
+    );
+  }
+
+  setMoveInput(x, z) {
+    this.externalMove.set(x, z);
+    const len = this.externalMove.length();
+    if (len > 1) this.externalMove.divideScalar(len);
+  }
+
+  _move(dt, cameraYaw) {
+    let forward = this.externalMove.y;
+    let strafe = this.externalMove.x;
+    if (this.keys.has('KeyW')) forward += 1;
+    if (this.keys.has('KeyS')) forward -= 1;
+    if (this.keys.has('KeyD')) strafe += 1;
+    if (this.keys.has('KeyA')) strafe -= 1;
+
+    // Camera-relative basis, flattened onto the ground plane.
+    const fx = -Math.sin(cameraYaw);
+    const fz = -Math.cos(cameraYaw);
+    const rx = Math.cos(cameraYaw);
+    const rz = -Math.sin(cameraYaw);
+
+    let dx = fx * forward + rx * strafe;
+    let dz = fz * forward + rz * strafe;
+    const inputLen = Math.hypot(dx, dz);
+    const moving = inputLen > 1e-4;
+    if (moving) {
+      dx /= inputLen;
+      dz /= inputLen;
+    }
+
+    const control = this.airborne ? 0.72 : 1;
+    const targetSpeed = MAX_SPEED * control;
+    const response = moving
+      ? ACCEL * (this.airborne ? 0.58 : 1)
+      : BRAKE * (this.airborne ? 0.48 : 1);
+    const k = 1 - Math.exp(-response * dt);
+    this.velocity.x += (dx * targetSpeed - this.velocity.x) * k;
+    this.velocity.z += (dz * targetSpeed - this.velocity.z) * k;
+    if (!moving && Math.hypot(this.velocity.x, this.velocity.z) < 0.02) {
+      this.velocity.x = 0;
+      this.velocity.z = 0;
+    }
+
+    const x = this.root.position.x;
+    const z = this.root.position.z;
+    let nx = x + this.velocity.x * dt;
+    let nz = z + this.velocity.z * dt;
+
+    // Try to slide along the boundary instead of stopping dead when the
+    // tumbleweed reaches a steep face or the edge of the meadow.
+    if (!this._walkable(nx, nz)) {
+      if (this._walkable(nx, z)) {
+        nz = z;
+        this.velocity.z = 0;
+      } else if (this._walkable(x, nz)) {
+        nx = x;
+        this.velocity.x = 0;
+      } else {
+        nx = x;
+        nz = z;
+        this.velocity.x = 0;
+        this.velocity.z = 0;
+      }
+    }
+
+    const stepX = nx - x;
+    const stepZ = nz - z;
+    const distance = Math.hypot(stepX, stepZ);
+    this.root.position.x = nx;
+    this.root.position.z = nz;
+
+    if (distance > 1e-5) {
+      // Roll around the axis perpendicular to travel; the sign follows
+      // the right-hand rule so the top of the ball moves forward.
+      const ax = this.velocity.z;
+      const az = -this.velocity.x;
+      this._rollAxis.set(ax, 0, az).normalize();
+      this.spin.rotateOnWorldAxis(this._rollAxis, distance / BALL_RADIUS);
+    }
+
+    this.speed = Math.hypot(this.velocity.x, this.velocity.z);
+  }
+
+  _updateShadow() {
+    if (!this.shadow) return;
+    const x = this.root.position.x;
+    const z = this.root.position.z;
+    const e = 0.7;
+    const ground = this._groundAt(x, z);
+    const hx = (this._groundAt(x + e, z) - this._groundAt(x - e, z)) / (2 * e);
+    const hz = (this._groundAt(x, z + e) - this._groundAt(x, z - e)) / (2 * e);
+    const normal = this._shadowNormal.set(-hx, 1, -hz).normalize();
+
+    this.shadow.position.set(x, ground + 0.02, z).addScaledVector(normal, 0.01);
+    this.shadow.quaternion.setFromUnitVectors(UP, normal);
+
+    const altitude = Math.max(0, this.root.position.y - (ground + CENTER_HEIGHT));
+    const fade = THREE.MathUtils.clamp(1 - altitude / (MAX_ALTITUDE * 1.5), 0.08, 1);
+    this.shadow.material.opacity = 0.52 * fade;
+    this.shadow.scale.setScalar(1 + altitude * 0.012);
+  }
+
+  update(dt, elapsed, cameraYaw = 0) {
+    this._move(dt, cameraYaw);
+
+    const ground = this._groundAt(this.root.position.x, this.root.position.z);
+    const targetY = ground + CENTER_HEIGHT;
+
+    if (this.liftEnabled && this.liftHeld && !this.airborne) {
+      this.liftCharge += dt;
+      if (this.liftCharge >= LIFT_CHARGE) {
+        this.airborne = true;
+        this.verticalVelocity = 2.2;
+        this._spawnGust();
+      }
+    } else if (!this.liftHeld) {
+      this.liftCharge = 0;
+    }
+
+    if (this.airborne) {
+      if (this.liftEnabled && this.liftHeld) {
+        this.verticalVelocity = Math.min(
+          MAX_RISE,
+          this.verticalVelocity + LIFT_ACCEL * dt
+        );
+      } else {
+        this.verticalVelocity = Math.max(
+          -MAX_FALL,
+          this.verticalVelocity - GRAVITY * dt
+        );
+      }
+
+      const altitude = this.root.position.y - targetY;
+      if (altitude >= MAX_ALTITUDE && this.verticalVelocity > 0) {
+        this.verticalVelocity = 0;
+      }
+
+      this.root.position.y += this.verticalVelocity * dt;
+
+      // A gentle spin while airborne keeps the tumbleweed alive without
+      // turning the lift into a jetpack.
+      const airSpin =
+        1.3 +
+        Math.min(
+          2.4,
+          Math.abs(this.verticalVelocity) * 0.35 + this.speed * 0.18
+        );
+      this.spin.rotateOnWorldAxis(UP, airSpin * dt);
+
+      if (this.root.position.y <= targetY) {
+        this.root.position.y = targetY;
+        this.baseY = targetY;
+        this.verticalVelocity = 0;
+        this.airborne = false;
+        this.liftCharge = 0;
+        this._spawnGust();
+      }
+      this.started = true;
+    } else {
+      const yK = this.started ? 1 - Math.exp(-14 * dt) : 1;
+      this.baseY += (targetY - this.baseY) * yK;
+      this.started = true;
+
+      // A small bounce makes the ball read as light dry brush rather than
+      // a rigid sphere, and fades out as soon as it stops.
+      const bob = Math.sin(elapsed * 9) * 0.025 * Math.min(1, this.speed / MAX_SPEED);
+      this.root.position.y = this.baseY + bob;
+    }
+
+    this._updateShadow();
+    this._updateGust(dt);
+  }
+
+  get verticalSpeed() {
+    return this.verticalVelocity;
+  }
+
+  get liftChargeProgress() {
+    if (!this.liftEnabled || this.airborne || !this.liftHeld) return 0;
+    return Math.min(1, this.liftCharge / LIFT_CHARGE);
+  }
+}
+return { Tumbleweed };
+} };
+
+defs["src/engine/abilities.js"] = { deps: [], factory: function (d) {
+
+/* ------------------------------------------------------------------ */
+/*  Abilities · progression state                                      */
+/*                                                                     */
+/*  Everything the player unlocks lives here: ability flags, the plant */
+/*  cap derived from them, anchor states and a small local save.       */
+/* ------------------------------------------------------------------ */
+
+const STORAGE_KEY = 'wind-passing.progress.v1';
+
+const ABILITY_ORDER = ['camera', 'multiPlant', 'lift', 'restore', 'time'];
+
+const ABILITY_LABELS = {
+  camera: '相机',
+  multiPlant: '多株',
+  lift: '起飞',
+  restore: '恢复',
+  time: '时间'
+};
+
+const DEFAULT_ABILITIES = {
+  camera: false,
+  multiPlant: false,
+  lift: false,
+  restore: false,
+  time: false
+};
+
+function defaultState() {
+  return {
+    abilities: { ...DEFAULT_ABILITIES },
+    maxPlants: 1,
+    anchors: {},
+    postcards: [],
+    settings: {}
+  };
+}
+
+function deriveMaxPlants(abilities) {
+  if (abilities.time) return 15;
+  if (abilities.restore) return 6;
+  if (abilities.multiPlant) return 3;
+  return 1;
+}
+
+function safeStorage() {
+  try {
+    return window.localStorage;
+  } catch (err) {
+    return null;
+  }
+}
+
+class Abilities {
+  constructor() {
+    this.storage = safeStorage();
+    this.listeners = new Set();
+    this.state = this._load();
+    this._applyDerived();
+  }
+
+  _load() {
+    const base = defaultState();
+    if (!this.storage) return base;
+    try {
+      const raw = this.storage.getItem(STORAGE_KEY);
+      if (!raw) return base;
+      const saved = JSON.parse(raw);
+      if (!saved || typeof saved !== 'object') return base;
+
+      if (saved.abilities && typeof saved.abilities === 'object') {
+        for (const name of ABILITY_ORDER) {
+          if (saved.abilities[name] === true) base.abilities[name] = true;
+        }
+      }
+      if (saved.anchors && typeof saved.anchors === 'object') {
+        for (const [id, value] of Object.entries(saved.anchors)) {
+          if (typeof value === 'string') base.anchors[id] = value;
+        }
+      }
+      if (Array.isArray(saved.postcards)) {
+        base.postcards = saved.postcards.filter((id) => typeof id === 'string');
+      }
+      if (saved.settings && typeof saved.settings === 'object') {
+        base.settings = { ...saved.settings };
+      }
+      return base;
+    } catch (err) {
+      return base;
+    }
+  }
+
+  _applyDerived() {
+    this.state.maxPlants = deriveMaxPlants(this.state.abilities);
+  }
+
+  save() {
+    if (!this.storage) return;
+    try {
+      this.storage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+    } catch (err) {
+      /* file:// or private mode may reject writes; in-memory state still works. */
+    }
+  }
+
+  has(name) {
+    return this.state.abilities[name] === true;
+  }
+
+  get maxPlants() {
+    return this.state.maxPlants;
+  }
+
+  get anchors() {
+    return this.state.anchors;
+  }
+
+  getAnchorState(id) {
+    return this.state.anchors[id] || null;
+  }
+
+  setAnchorState(id, state) {
+    this.state.anchors[id] = state;
+    this.save();
+    this._emit('anchor');
+  }
+
+  unlock(name) {
+    if (!ABILITY_ORDER.includes(name)) return false;
+    if (this.state.abilities[name]) return false;
+
+    this.state.abilities[name] = true;
+    this._applyDerived();
+    this.save();
+    this._emit(name);
+    return true;
+  }
+
+  addPostcard(id) {
+    if (!id || this.state.postcards.includes(id)) return false;
+    this.state.postcards.push(id);
+    this.save();
+    this._emit('postcard');
+    return true;
+  }
+
+  hasPostcard(id) {
+    return this.state.postcards.includes(id);
+  }
+
+  reset() {
+    this.state = defaultState();
+    if (this.storage) {
+      try {
+        this.storage.removeItem(STORAGE_KEY);
+      } catch (err) {
+        /* noop */
+      }
+    }
+    this._emit('reset');
+  }
+
+  subscribe(fn) {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+
+  _emit(reason) {
+    for (const fn of this.listeners) {
+      try {
+        fn(this.state, reason);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  }
+}
+return { ABILITY_ORDER, ABILITY_LABELS, Abilities };
+} };
+
+defs["src/engine/anchors.js"] = { deps: ["three", "src/engine/abilities.js"], factory: function (d) {
+      const THREE = d["three"].THREE;
+      const { ABILITY_LABELS } = d["src/engine/abilities.js"];
+
+
+/* ------------------------------------------------------------------ */
+/*  Anchors · capability gates                                         */
+/*                                                                     */
+/*  Five stops over the valley: old tree, windmill, updraft, spring    */
+/*  and sundial. Rules, proximity checks, unlock + save states live    */
+/*  here; the physical set pieces are built by journey-assets.js.      */
+/* ------------------------------------------------------------------ */
+
+const UP = new THREE.Vector3(0, 1, 0);
+
+const ANCHOR_DEFS = [
+  {
+    id: 'oldTree',
+    label: '老树',
+    sub: '第一阵风',
+    x: -34,
+    z: -22,
+    radius: 9,
+    action: 'plant',
+    requires: null,
+    unlock: 'camera',
+    verb: '唤醒老树',
+    color: '#d8b98a',
+    toast: '老树醒了 · 解锁相机',
+    solveToast: '老树醒了 · 解锁相机',
+    real: true,
+    postcard: 'tree',
+    cardTitle: '树下的风'
+  },
+  {
+    id: 'windmill',
+    label: '风车',
+    sub: '三重风眼',
+    x: 42,
+    z: -40,
+    radius: 10,
+    action: 'windmill',
+    requires: 'camera',
+    unlock: 'multiPlant',
+    verb: '唤醒种子合唱',
+    color: '#b7c3cf',
+    toast: '风车转了 · 解锁多株',
+    solveToast: '风车转了 · 三个风眼亮了',
+    real: true,
+    postcard: 'windmill',
+    cardTitle: '风车的回声'
+  },
+  {
+    id: 'updraft',
+    label: '上升气流',
+    sub: '借风升起',
+    x: 42,
+    z: -34,
+    radius: 8,
+    action: 'key',
+    requires: 'multiPlant',
+    requiresAnchor: 'windmill',
+    unlock: 'lift',
+    verb: '借风升起',
+    color: '#cfe0ec',
+    toast: '风羽入手 · 解锁起飞',
+    solveToast: '风羽入手 · 解锁起飞',
+    postcard: 'tower',
+    cardTitle: '塔顶的风'
+  },
+  {
+    id: 'spring',
+    label: '枯泉',
+    sub: '回种',
+    x: 0,
+    z: 45,
+    radius: 10,
+    action: 'spring',
+    requires: 'lift',
+    unlock: 'restore',
+    verb: '复苏枯泉',
+    color: '#a9c7a7',
+    toast: '枯泉复苏 · 解锁种子恢复',
+    solveToast: '枯泉复苏 · 解锁种子恢复',
+    real: true,
+    postcard: 'spring',
+    cardTitle: '枯泉的回声'
+  },
+  {
+    id: 'sundial',
+    label: '北坡日晷',
+    sub: '日落刻度',
+    x: -9,
+    z: 114.5,
+    radius: 10,
+    action: 'sundial',
+    requires: 'restore',
+    unlock: 'time',
+    verb: '触摸日种',
+    color: '#e6c98d',
+    toast: '日种入手 · 拖动日月对准刻痕',
+    solveToast: '日影对齐 · 山谷的尽头',
+    real: true,
+    postcard: 'sundial',
+    cardTitle: '山谷的尽头'
+  }
+];
+
+function makeLabelTexture(title, subtitle, color) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 192;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, 512, 192);
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = 'rgba(255, 248, 230, 0.96)';
+  ctx.font = '600 52px "PingFang SC", "Noto Sans SC", sans-serif';
+  ctx.fillText(title, 256, 74);
+
+  ctx.fillStyle = color;
+  ctx.font = '400 28px "PingFang SC", "Noto Sans SC", sans-serif';
+  ctx.fillText(subtitle, 256, 132);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+function terrainNormal(world, x, z) {
+  const e = 0.7;
+  const ground = world.heightAt(x, z);
+  const hx = (world.heightAt(x + e, z) - world.heightAt(x - e, z)) / (2 * e);
+  const hz = (world.heightAt(x, z + e) - world.heightAt(x, z - e)) / (2 * e);
+  return {
+    ground,
+    normal: new THREE.Vector3(-hx, 1, -hz).normalize()
+  };
+}
+
+class Anchors {
+  constructor({ scene, world, abilities, onUnlock, onSolve, onToast }) {
+    this.scene = scene;
+    this.world = world;
+    this.abilities = abilities;
+    this.onUnlock = onUnlock;
+    this.onSolve = onSolve;
+    this.onToast = onToast;
+    this.items = [];
+    this.nearby = null;
+    this.prompt = '';
+    this.group = new THREE.Group();
+    scene.add(this.group);
+
+    for (const def of ANCHOR_DEFS) {
+      this.items.push(this._createItem(def));
+    }
+
+    // Reconcile saved ability state with anchor visuals.
+    for (const item of this.items) {
+      const solved = this.abilities.getAnchorState(item.def.id) === 'solved';
+      if (solved) {
+        item.solved = true;
+        this._applySolvedVisual(item);
+      }
+    }
+  }
+
+  _createItem(def) {
+    const { ground, normal } = terrainNormal(this.world, def.x, def.z);
+    const item = {
+      def,
+      solved: false,
+      ground,
+      normal,
+      pulse: Math.random() * Math.PI * 2
+    };
+
+    const color = new THREE.Color(def.color);
+
+    item.ring = new THREE.Mesh(
+      new THREE.RingGeometry(1.05, 1.38, 64),
+      new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0.55,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        toneMapped: false
+      })
+    );
+    item.ring.geometry.rotateX(-Math.PI / 2);
+    item.ring.quaternion.setFromUnitVectors(UP, normal);
+    item.ring.position.set(def.x, ground + 0.045, def.z);
+    item.ring.renderOrder = 3;
+    this.group.add(item.ring);
+
+    item.aura = new THREE.Mesh(
+      new THREE.RingGeometry(def.radius * 0.82, def.radius * 0.86, 80),
+      new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0.10,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        toneMapped: false
+      })
+    );
+    item.aura.geometry.rotateX(-Math.PI / 2);
+    item.aura.quaternion.setFromUnitVectors(UP, normal);
+    item.aura.position.set(def.x, ground + 0.03, def.z);
+    item.aura.renderOrder = 2;
+    this.group.add(item.aura);
+
+    item.beacon = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.18, 0.95, 4.4, 18, 1, true),
+      new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0.11,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+        toneMapped: false
+      })
+    );
+    item.beacon.position.set(def.x, ground + 2.2, def.z);
+    item.beacon.renderOrder = 2;
+    this.group.add(item.beacon);
+
+    item.label = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: makeLabelTexture(def.label, def.sub, def.color),
+        transparent: true,
+        depthWrite: false,
+        toneMapped: false,
+        opacity: 0.92
+      })
+    );
+    item.label.position.set(def.x, ground + 3.55, def.z);
+    item.label.scale.set(5.0, 1.9, 1);
+    item.label.renderOrder = 3;
+    this.group.add(item.label);
+
+    if (def.real) {
+      item.label.visible = false;
+      item.beacon.visible = false;
+      item.ring.material.opacity = 0.28;
+      item.aura.material.opacity = 0.05;
+    }
+
+    return item;
+  }
+
+  _applySolvedVisual(item) {
+    item.ring.material.opacity = 0.16;
+    item.aura.material.opacity = 0.03;
+    item.beacon.visible = false;
+    item.label.visible = false;
+  }
+
+  _buildPrompt(item) {
+    if (!item || item.solved) return '';
+    if (item.def.requires && !this.abilities.has(item.def.requires)) {
+      return `需要先解锁【${ABILITY_LABELS[item.def.requires]}】`;
+    }
+    if (item.def.requiresAnchor &&
+        this.abilities.getAnchorState(item.def.requiresAnchor) !== 'solved') {
+      return '需要先让风车转动';
+    }
+    if (item.def.action === 'plant') {
+      return '在附近种下一株蒲公英';
+    }
+    if (item.def.action === 'windmill') {
+      return this.abilities.has('multiPlant')
+        ? '在三个风眼各种一株蒲公英'
+        : 'E · 唤醒种子合唱';
+    }
+    if (item.def.action === 'sundial') {
+      return this.abilities.has('time')
+        ? '拖动日月 · 让日影对准刻痕'
+        : 'E · 触摸日种';
+    }
+    return `E · ${item.def.verb}`;
+  }
+
+  update(dt, elapsed, playerPos) {
+    let nearest = null;
+    let nearestDist = Infinity;
+
+    for (const item of this.items) {
+      const pulse = Math.sin(elapsed * 1.8 + item.pulse);
+      if (!item.solved) {
+        item.ring.material.opacity =
+          (item.def.real ? 0.22 : 0.46) + pulse * 0.08;
+        item.ring.scale.setScalar(1 + pulse * 0.035);
+        item.beacon.material.opacity = 0.09 + pulse * 0.025;
+        item.label.material.opacity = 0.82 + pulse * 0.08;
+      }
+
+      if (item.solved) continue;
+
+      const dx = playerPos.x - item.def.x;
+      const dz = playerPos.z - item.def.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist <= item.def.radius && dist < nearestDist) {
+        nearest = item;
+        nearestDist = dist;
+      }
+    }
+
+    this.nearby = nearest;
+    this.prompt = this._buildPrompt(nearest);
+  }
+
+  interact() {
+    const item = this.nearby;
+    if (!item) return false;
+
+    if (item.solved) {
+      this.onToast?.('这里已经安定下来了');
+      return false;
+    }
+    if (item.def.requires && !this.abilities.has(item.def.requires)) {
+      this.onToast?.(`需要先解锁【${ABILITY_LABELS[item.def.requires]}】`);
+      return false;
+    }
+    if (item.def.requiresAnchor &&
+        this.abilities.getAnchorState(item.def.requiresAnchor) !== 'solved') {
+      this.onToast?.('需要先让风车转动');
+      return false;
+    }
+    if (item.def.action === 'plant') {
+      this.onToast?.('先在附近种下一株蒲公英');
+      return false;
+    }
+    if (item.def.action === 'windmill') {
+      if (!this.abilities.has('multiPlant')) {
+        this.abilities.unlock('multiPlant');
+        this.abilities.setAnchorState(item.def.id, 'seeded');
+        this.onUnlock?.('multiPlant', item.def);
+        this.onToast?.('解锁多株 · 在三个风眼各种一株蒲公英');
+        return true;
+      }
+      this.onToast?.('在三个风眼各种一株蒲公英');
+      return false;
+    }
+    if (item.def.action === 'sundial') {
+      if (!this.abilities.has('time')) {
+        this.abilities.unlock('time');
+        this.abilities.setAnchorState(item.def.id, 'seeded');
+        this.onUnlock?.('time', item.def);
+        this.onToast?.('解锁时间控制 · 拖动日月对准刻痕');
+        return true;
+      }
+      this.onToast?.('拖动日月 · 让日影对准刻痕');
+      return false;
+    }
+
+    this._solve(item);
+    return true;
+  }
+
+  notifyPlant(point) {
+    const item = this.items.find((entry) => entry.def.action === 'plant');
+    if (!item || item.solved) return false;
+
+    const dist = Math.hypot(point.x - item.def.x, point.z - item.def.z);
+    if (dist > item.def.radius) return false;
+
+    this._solve(item);
+    return true;
+  }
+
+  _solve(item, silent = false) {
+    if (item.solved) return false;
+    item.solved = true;
+
+    if (item.def.unlock && !this.abilities.has(item.def.unlock)) {
+      this.abilities.unlock(item.def.unlock);
+      this.onUnlock?.(item.def.unlock, item.def);
+    }
+    this.abilities.setAnchorState(item.def.id, 'solved');
+    this._applySolvedVisual(item);
+
+    this.prompt = '';
+    this.nearby = null;
+    this.onSolve?.(item.def.id, item.def);
+    if (!silent) {
+      this.onToast?.(
+        item.def.solveToast ||
+        item.def.toast ||
+        `解锁 · ${ABILITY_LABELS[item.def.unlock] || item.def.label}`
+      );
+    }
+    return true;
+  }
+
+  solveById(id, silent = false) {
+    const item = this.items.find((entry) => entry.def.id === id);
+    if (!item) return false;
+    return this._solve(item, silent);
+  }
+
+  isSolved(id) {
+    const item = this.items.find((entry) => entry.def.id === id);
+    return !!(item && item.solved);
+  }
+
+  getPhotoTarget(playerPos) {
+    let best = null;
+    let bestDistance = Infinity;
+    for (const item of this.items) {
+      if (!item.solved || !item.def.postcard) continue;
+      const dist = Math.hypot(
+        playerPos.x - item.def.x,
+        playerPos.z - item.def.z
+      );
+      if (dist <= item.def.radius + 2.5 && dist < bestDistance) {
+        best = item;
+        bestDistance = dist;
+      }
+    }
+    return best;
+  }
+}
+return { Anchors };
+} };
+
+defs["src/engine/film-camera.js"] = { deps: ["three"], factory: function (d) {
+      const THREE = d["three"].THREE;
+
+/* ------------------------------------------------------------------ */
+/*  Film camera · place, frame, shoot                                  */
+/*                                                                     */
+/*  One physical tripod camera, a single active view: drag to aim,     */
+/*  wheel to zoom. Shutter and clips are composited by capture.js.     */
+/* ------------------------------------------------------------------ */
+
+const UP = new THREE.Vector3(0, 1, 0);
+const MIN_FOV = 28;
+const MAX_FOV = 65;
+const TRIPOD_HEIGHT = 1.38;
+const MAX_RADIUS = 130;
+const MAX_SLOPE = 0.5;
+const MAX_GROUND_HEIGHT = 40;
+
+function stick(a, b, radius, material) {
+  const dir = b.clone().sub(a);
+  const length = dir.length();
+  const mesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(radius, radius, length, 6),
+    material
+  );
+  mesh.position.copy(a).add(b).multiplyScalar(0.5);
+  mesh.quaternion.setFromUnitVectors(UP, dir.normalize());
+  return mesh;
+}
+
+class FilmCamera {
+  constructor({ scene, camera, canvas, world, getFocus, onPlace, onToast }) {
+    this.scene = scene;
+    this.mainCamera = camera;
+    this.canvas = canvas;
+    this.world = world;
+    this.getFocus = getFocus;
+    this.onPlace = onPlace;
+    this.onToast = onToast;
+
+    this.camera = new THREE.PerspectiveCamera(
+      45,
+      window.innerWidth / window.innerHeight,
+      0.1,
+      1400
+    );
+    this.camera.rotation.order = 'YXZ';
+
+    this.placed = false;
+    this.active = false;
+    this.placing = false;
+    this.dragging = false;
+    this.dragId = null;
+    this.lastX = 0;
+    this.lastY = 0;
+    this.yaw = 0;
+    this.pitch = 0;
+    this.fov = 45;
+    this.lastPoint = null;
+    this.ghostValid = false;
+
+    this._raycaster = new THREE.Raycaster();
+    this._ndc = new THREE.Vector2();
+
+    this._buildRig();
+    this._buildGhost();
+    this._bind();
+  }
+
+  _buildRig() {
+    this.rig = new THREE.Group();
+
+    const metal = new THREE.MeshStandardMaterial({
+      color: '#4a4438',
+      roughness: 0.72,
+      metalness: 0.35
+    });
+    const dark = new THREE.MeshStandardMaterial({
+      color: '#2c2822',
+      roughness: 0.9,
+      metalness: 0.1
+    });
+    const glass = new THREE.MeshStandardMaterial({
+      color: '#b9c8cc',
+      roughness: 0.22,
+      metalness: 0.65
+    });
+
+    this.rig.add(stick(
+      new THREE.Vector3(0, 1.16, 0),
+      new THREE.Vector3(0.48, 0, 0.2),
+      0.022,
+      metal
+    ));
+    this.rig.add(stick(
+      new THREE.Vector3(0, 1.16, 0),
+      new THREE.Vector3(-0.36, 0, 0.42),
+      0.022,
+      metal
+    ));
+    this.rig.add(stick(
+      new THREE.Vector3(0, 1.16, 0),
+      new THREE.Vector3(-0.08, 0, -0.55),
+      0.022,
+      metal
+    ));
+
+    const body = new THREE.Mesh(
+      new THREE.BoxGeometry(0.42, 0.3, 0.52),
+      dark
+    );
+    body.position.set(0, 1.34, 0);
+    this.rig.add(body);
+
+    const lens = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.13, 0.17, 0.3, 14),
+      glass
+    );
+    lens.rotation.x = Math.PI / 2;
+    lens.position.set(0, 1.34, -0.36);
+    this.rig.add(lens);
+
+    this.rigLight = new THREE.Mesh(
+      new THREE.SphereGeometry(0.045, 10, 8),
+      new THREE.MeshBasicMaterial({ color: '#d95b45', toneMapped: false })
+    );
+    this.rigLight.position.set(0.13, 1.47, -0.22);
+    this.rig.add(this.rigLight);
+
+    this.rig.visible = false;
+    this.rig.frustumCulled = false;
+    this.scene.add(this.rig);
+  }
+
+  _buildGhost() {
+    this.ghost = new THREE.Group();
+
+    this.ghostRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.75, 1.0, 48),
+      new THREE.MeshBasicMaterial({
+        color: '#f4dcae',
+        transparent: true,
+        opacity: 0.65,
+        depthTest: false,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        toneMapped: false
+      })
+    );
+    this.ghostRing.geometry.rotateX(-Math.PI / 2);
+    this.ghostRing.renderOrder = 8;
+    this.ghost.add(this.ghostRing);
+
+    this.ghostBox = new THREE.Mesh(
+      new THREE.BoxGeometry(0.5, 0.34, 0.55),
+      new THREE.MeshBasicMaterial({
+        color: '#f4dcae',
+        transparent: true,
+        opacity: 0.28,
+        depthWrite: false,
+        toneMapped: false
+      })
+    );
+    this.ghostBox.position.y = TRIPOD_HEIGHT;
+    this.ghostBox.renderOrder = 8;
+    this.ghost.add(this.ghostBox);
+
+    this.ghost.visible = false;
+    this.scene.add(this.ghost);
+  }
+
+  _bind() {
+    this.canvas.addEventListener('pointerdown', (e) => {
+      if (e.target !== this.canvas) return;
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+      if (this.placing) {
+        e.preventDefault();
+        // The first click should also work without moving the mouse first.
+        if (!this.ghostValid || !this.lastPoint) {
+          this._updateGhost(e.clientX, e.clientY);
+        }
+        if (this.ghostValid && this.lastPoint) {
+          this.placeAt(this.lastPoint);
+        } else {
+          this.onToast?.('把相机放在草地上');
+        }
+        return;
+      }
+
+      if (!this.active) return;
+      e.preventDefault();
+      this.dragging = true;
+      this.dragId = e.pointerId;
+      this.lastX = e.clientX;
+      this.lastY = e.clientY;
+      try { this.canvas.setPointerCapture(e.pointerId); } catch (err) { /* noop */ }
+    });
+
+    this.canvas.addEventListener('pointermove', (e) => {
+      if (this.placing) {
+        this._updateGhost(e.clientX, e.clientY);
+      }
+      if (!this.dragging || e.pointerId !== this.dragId) return;
+      e.preventDefault();
+      const dx = e.clientX - this.lastX;
+      const dy = e.clientY - this.lastY;
+      this.lastX = e.clientX;
+      this.lastY = e.clientY;
+      this.yaw -= dx * 0.0032;
+      if (this.yaw > Math.PI) this.yaw -= Math.PI * 2;
+      else if (this.yaw < -Math.PI) this.yaw += Math.PI * 2;
+      this.pitch = THREE.MathUtils.clamp(
+        this.pitch - dy * 0.0030,
+        -1.15,
+        1.15
+      );
+      this._applyRotation();
+    });
+
+    const endDrag = (e) => {
+      if (this.dragging && e.pointerId === this.dragId) {
+        this.dragging = false;
+        this.dragId = null;
+        try { this.canvas.releasePointerCapture(e.pointerId); } catch (err) { /* noop */ }
+      }
+    };
+    this.canvas.addEventListener('pointerup', endDrag);
+    this.canvas.addEventListener('pointercancel', endDrag);
+    this.canvas.addEventListener('lostpointercapture', endDrag);
+
+    this.canvas.addEventListener('wheel', (e) => {
+      if (e.target !== this.canvas || !this.active) return;
+      e.preventDefault();
+      this.setFov(this.fov * Math.exp(e.deltaY * 0.0012));
+    }, { passive: false });
+  }
+
+  _updateGhost(clientX, clientY) {
+    this._ndc.set(
+      (clientX / window.innerWidth) * 2 - 1,
+      -(clientY / window.innerHeight) * 2 + 1
+    );
+    this._raycaster.setFromCamera(this._ndc, this.mainCamera);
+    const hits = this._raycaster.intersectObject(this.world.ground, false);
+    if (!hits.length) {
+      this.ghost.visible = false;
+      this.ghostValid = false;
+      this.lastPoint = null;
+      return;
+    }
+    const point = hits[0].point;
+    const valid = this._valid(point);
+    this.ghost.visible = true;
+    this.lastPoint = point.clone();
+    this.ghostValid = valid;
+    this.ghost.position.set(point.x, point.y + 0.03, point.z);
+    const color = valid ? '#f4dcae' : '#d66a5a';
+    this.ghostRing.material.color.set(color);
+    this.ghostBox.material.color.set(color);
+  }
+
+  _valid(point) {
+    const r = Math.hypot(point.x, point.z);
+    if (r > MAX_RADIUS) return false;
+    if (point.y > MAX_GROUND_HEIGHT) return false;
+    if (this.world.slopeAt && this.world.slopeAt(point.x, point.z) > MAX_SLOPE) {
+      return false;
+    }
+    return true;
+  }
+
+  beginPlacement() {
+    this.placing = true;
+    this.active = false;
+    this.dragging = false;
+    this.dragId = null;
+    this.rig.visible = false;
+
+    if (this.placed) {
+      this.ghost.visible = true;
+      this.ghost.position.copy(this.rig.position);
+      this.ghost.position.y += 0.03;
+      this.lastPoint = new THREE.Vector3(
+        this.camera.position.x,
+        this.world.heightAt(this.camera.position.x, this.camera.position.z),
+        this.camera.position.z
+      );
+      this.ghostValid = this._valid(this.lastPoint);
+    } else {
+      this.ghost.visible = false;
+      this.ghostValid = false;
+      this.lastPoint = null;
+    }
+  }
+
+  cancelPlacement() {
+    this.placing = false;
+    this.ghost.visible = false;
+    this.ghostValid = false;
+    this.lastPoint = null;
+    if (this.placed) this.rig.visible = !this.active;
+  }
+
+  placeAt(point) {
+    if (!point || !this._valid(point)) {
+      this.onToast?.('这里放不稳，换一片草地');
+      return false;
+    }
+
+    const ground = this.world.heightAt(point.x, point.z);
+    this.rig.position.set(point.x, ground, point.z);
+    this.rig.visible = false;
+    this.camera.position.set(point.x, ground + TRIPOD_HEIGHT, point.z);
+
+    this.ghost.visible = false;
+    this.ghostValid = false;
+    this.lastPoint = point.clone();
+    this.placed = true;
+    this.placing = false;
+
+    this._lookAtFocus();
+    this.onPlace?.(this);
+    return true;
+  }
+
+  _lookAtFocus() {
+    const focus = this.getFocus();
+    const dx = focus.x - this.camera.position.x;
+    const dy = focus.y - this.camera.position.y;
+    const dz = focus.z - this.camera.position.z;
+    const length = Math.hypot(dx, dy, dz) || 1;
+    this.yaw = Math.atan2(-dx, -dz);
+    this.pitch = THREE.MathUtils.clamp(
+      Math.asin(THREE.MathUtils.clamp(dy / length, -1, 1)),
+      -1.15,
+      1.15
+    );
+    this._applyRotation();
+  }
+
+  _applyRotation() {
+    this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
+    this.rig.rotation.y = this.yaw;
+  }
+
+  activate() {
+    if (!this.placed) return false;
+    this.active = true;
+    this.placing = false;
+    this.ghost.visible = false;
+    this.rig.visible = false;
+    this.camera.updateProjectionMatrix();
+    this.camera.updateMatrixWorld();
+    return true;
+  }
+
+  deactivate() {
+    this.active = false;
+    this.dragging = false;
+    this.dragId = null;
+    this.rig.visible = this.placed;
+  }
+
+  setFov(fov) {
+    this.fov = THREE.MathUtils.clamp(fov, MIN_FOV, MAX_FOV);
+    this.camera.fov = this.fov;
+    this.camera.updateProjectionMatrix();
+  }
+
+  setAspect(aspect) {
+    this.camera.aspect = aspect;
+    this.camera.updateProjectionMatrix();
+  }
+
+  getYaw() {
+    return this.yaw;
+  }
+
+  get isActive() {
+    return this.active;
+  }
+
+  get isPlacing() {
+    return this.placing;
+  }
+
+  update(dt, elapsed) {
+    if (this.placing) {
+      const pulse = 0.5 + 0.5 * Math.sin(elapsed * 4.5);
+      this.ghostRing.material.opacity = 0.35 + pulse * 0.35;
+      this.ghostBox.material.opacity = 0.15 + pulse * 0.18;
+    }
+
+    if (this.rigLight) {
+      this.rigLight.material.color.setRGB(
+        0.85,
+        0.18 + (this.active ? 0 : 0.25 * (0.5 + 0.5 * Math.sin(elapsed * 2.2))),
+        0.14
+      );
+    }
+
+    if (this.active) {
+      this.camera.updateMatrixWorld();
+    }
+  }
+}
+return { FilmCamera };
+} };
+
+defs["src/engine/journey-assets.js"] = { deps: ["three", "src/engine/tree-assets.js", "src/engine/windmill-asset.js"], factory: function (d) {
+      const THREE = d["three"].THREE;
+      const { buildTreeGeometry, createTreeMaterial } = d["src/engine/tree-assets.js"];
+      const { buildWindmillAsset } = d["src/engine/windmill-asset.js"];
+
+
+
+/* ------------------------------------------------------------------ */
+/*  Journey assets · real landmarks for the five acts                  */
+/*                                                                     */
+/*  These sit exactly on the anchor coordinates and replace the M1     */
+/*  rings with real silhouettes: an old tree, a windmill, a dry spring, */
+/*  a vine arch and a north-ridge sundial.                             */
+/* ------------------------------------------------------------------ */
+
+const UP = new THREE.Vector3(0, 1, 0);
+
+function groundAt(world, x, z) {
+  return world.heightAt ? world.heightAt(x, z) : 0;
+}
+
+function terrainNormal(world, x, z) {
+  const e = 0.7;
+  const hx = (world.heightAt(x + e, z) - world.heightAt(x - e, z)) / (2 * e);
+  const hz = (world.heightAt(x, z + e) - world.heightAt(x, z - e)) / (2 * e);
+  return new THREE.Vector3(-hx, 1, -hz).normalize();
+}
+
+function tube(points, radius, material) {
+  const curve = new THREE.CatmullRomCurve3(points);
+  return new THREE.Mesh(new THREE.TubeGeometry(curve, 20, radius, 6, false), material);
+}
+
+/* ------------------------------------------------------------------ */
+/*  old tree                                                           */
+/* ------------------------------------------------------------------ */
+
+function createOldTree(scene, world) {
+  const group = new THREE.Group();
+  const x = -34;
+  const z = -22;
+  group.position.set(x, groundAt(world, x, z), z);
+  scene.add(group);
+
+  const material = createTreeMaterial();
+  const specs = [
+    { x: 0, z: 0, scale: 1.15, seed: 11, variant: 0, yaw: 0.4 },
+    { x: 5.2, z: 2.4, scale: 0.78, seed: 27, variant: 1, yaw: 2.1 },
+    { x: -4.4, z: 3.2, scale: 0.72, seed: 43, variant: 2, yaw: 4.0 }
+  ];
+
+  const trees = [];
+  for (const spec of specs) {
+    const mesh = new THREE.Mesh(
+      buildTreeGeometry(spec.seed, spec.variant),
+      material
+    );
+    mesh.position.set(spec.x, 0, spec.z);
+    mesh.scale.setScalar(spec.scale);
+    mesh.rotation.y = spec.yaw;
+    group.add(mesh);
+    trees.push(mesh);
+  }
+
+  // A flower ring that opens after the first dandelion wakes the tree.
+  const bloomGeometry = new THREE.IcosahedronGeometry(0.075, 0);
+  const bloomMaterial = new THREE.MeshBasicMaterial({
+    color: '#ffe1a0',
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    toneMapped: false
+  });
+  const blooms = new THREE.InstancedMesh(bloomGeometry, bloomMaterial, 42);
+  blooms.frustumCulled = false;
+  const dummy = new THREE.Object3D();
+  for (let i = 0; i < 42; i++) {
+    const a = (i / 42) * Math.PI * 2 + Math.random() * 0.12;
+    const r = 1.2 + Math.random() * 2.2;
+    dummy.position.set(Math.cos(a) * r, 0.12 + Math.random() * 0.1, Math.sin(a) * r);
+    dummy.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
+    dummy.scale.setScalar(0.6 + Math.random() * 0.8);
+    dummy.updateMatrix();
+    blooms.setMatrixAt(i, dummy.matrix);
+  }
+  blooms.instanceMatrix.needsUpdate = true;
+  group.add(blooms);
+
+  let awake = 0;
+  return {
+    group,
+    material,
+    trees,
+    blooms,
+    get awake() { return awake; },
+    setAwake(progress) {
+      awake = THREE.MathUtils.clamp(progress, 0, 1);
+      const s = 0.001 + awake * 0.999;
+      blooms.scale.setScalar(s);
+      bloomMaterial.opacity = awake * 0.9;
+    },
+    update(t, wind) {
+      material.uniforms.uTime.value = t;
+      const breeze = wind ? wind.breezePower : 0.2;
+      const player = wind ? wind.playerStrength : 0;
+      material.uniforms.uWindStrength.value = Math.min(1, breeze + player * 0.8);
+      if (wind) {
+        material.uniforms.uWindDir.value.set(wind.dir.x, wind.dir.z).normalize();
+      }
+    }
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/*  windmill + sockets + updraft                                       */
+/* ------------------------------------------------------------------ */
+
+function createWindmill(scene, world) {
+  const x = 42;
+  const z = -40;
+  const ground = groundAt(world, x, z);
+  const asset = buildWindmillAsset();
+  asset.group.position.set(x, ground, z);
+  asset.group.scale.setScalar(0.85);
+  asset.group.rotation.y = 0.18;
+  scene.add(asset.group);
+
+  const socketMaterial = new THREE.MeshBasicMaterial({
+    color: '#d9c08a',
+    transparent: true,
+    opacity: 0.35,
+    depthWrite: false,
+    toneMapped: false
+  });
+  const socketGeometry = new THREE.TorusGeometry(0.65, 0.09, 8, 24);
+  socketGeometry.rotateX(Math.PI / 2);
+
+  const sockets = [];
+  const socketWorld = [];
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2 + 0.4;
+    const sx = x + Math.cos(a) * 5.2;
+    const sz = z + Math.sin(a) * 5.2;
+    const sy = groundAt(world, sx, sz);
+    const ring = new THREE.Mesh(socketGeometry, socketMaterial.clone());
+    ring.position.set(sx, sy + 0.06, sz);
+    ring.renderOrder = 3;
+    scene.add(ring);
+    sockets.push(ring);
+    socketWorld.push(new THREE.Vector3(sx, sy, sz));
+  }
+
+  const updraftGroup = new THREE.Group();
+  const updraftX = 42;
+  const updraftZ = -34;
+  updraftGroup.position.set(updraftX, groundAt(world, updraftX, updraftZ), updraftZ);
+  const columnMaterial = new THREE.MeshBasicMaterial({
+    color: '#d8e6ee',
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+    toneMapped: false
+  });
+  const column = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.65, 1.9, 9.5, 18, 1, true),
+    columnMaterial
+  );
+  column.position.y = 4.75;
+  updraftGroup.add(column);
+  const rings = [];
+  for (let i = 0; i < 3; i++) {
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(1.1 + i * 0.3, 0.035, 6, 32),
+      columnMaterial.clone()
+    );
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = 1 + i * 2.3;
+    updraftGroup.add(ring);
+    rings.push(ring);
+  }
+  updraftGroup.visible = false;
+  scene.add(updraftGroup);
+
+  let speed = 0;
+  let target = 0;
+  let turning = false;
+  let socketLit = 0;
+
+  return {
+    group: asset.group,
+    rotor: asset.rotor,
+    sockets,
+    socketWorld,
+    updraftGroup,
+    get turning() { return turning; },
+    setTurning(on) {
+      turning = !!on;
+      target = turning ? 1.25 : 0;
+      updraftGroup.visible = turning;
+    },
+    setSocketLit(on) {
+      socketLit = on ? 1 : 0;
+      for (const socket of sockets) {
+        socket.material.color.set(on ? '#ffe4a8' : '#d9c08a');
+        socket.material.opacity = on ? 0.9 : 0.35;
+      }
+    },
+    update(dt, elapsed) {
+      speed += (target - speed) * (1 - Math.exp(-3.2 * dt));
+      if (this.rotor) this.rotor.rotation.z += speed * dt;
+      if (turning) {
+        const pulse = 0.5 + 0.5 * Math.sin(elapsed * 2.0);
+        columnMaterial.opacity = 0.07 + pulse * 0.035;
+        rings.forEach((ring, i) => {
+          const p = (elapsed * 0.24 + i * 0.33) % 1;
+          ring.position.y = 0.7 + p * 8.2;
+          ring.scale.setScalar(0.7 + p * 0.5);
+          ring.material.opacity = 0.12 * (1 - p);
+        });
+      }
+      socketMaterial.opacity = socketLit ? 0.8 : 0.35;
+    }
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/*  dry spring + vine arch                                             */
+/* ------------------------------------------------------------------ */
+
+function createDrySpring(scene, world) {
+  const group = new THREE.Group();
+  const x = 0;
+  const z = 45;
+  const ground = groundAt(world, x, z);
+  group.position.set(x, ground, z);
+  scene.add(group);
+
+  const dry = new THREE.Mesh(
+    new THREE.CircleGeometry(2.6, 40),
+    new THREE.MeshBasicMaterial({
+      color: '#6f5a3e',
+      transparent: true,
+      opacity: 0.9,
+      depthWrite: false,
+      toneMapped: false
+    })
+  );
+  dry.rotation.x = -Math.PI / 2;
+  dry.position.y = 0.025;
+  group.add(dry);
+
+  const water = new THREE.Mesh(
+    new THREE.CircleGeometry(2.05, 40),
+    new THREE.MeshBasicMaterial({
+      color: '#87c5cd',
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      toneMapped: false
+    })
+  );
+  water.rotation.x = -Math.PI / 2;
+  water.position.y = 0.045;
+  group.add(water);
+
+  const stoneMaterial = new THREE.MeshStandardMaterial({ color: '#7d7565', roughness: 0.95 });
+  for (let i = 0; i < 14; i++) {
+    const a = (i / 14) * Math.PI * 2;
+    const r = 2.75;
+    const stone = new THREE.Mesh(
+      new THREE.DodecahedronGeometry(0.3 + Math.random() * 0.18, 0),
+      stoneMaterial
+    );
+    stone.position.set(Math.cos(a) * r, 0.15, Math.sin(a) * r);
+    stone.rotation.set(Math.random() * 2, Math.random() * 2, Math.random() * 2);
+    group.add(stone);
+  }
+
+  const withered = new THREE.Group();
+  const stem = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.035, 0.05, 0.9, 6),
+    new THREE.MeshStandardMaterial({ color: '#6f6044', roughness: 1 })
+  );
+  stem.position.y = 0.45;
+  stem.rotation.z = 0.18;
+  withered.add(stem);
+  const head = new THREE.Mesh(
+    new THREE.SphereGeometry(0.14, 10, 8),
+    new THREE.MeshStandardMaterial({ color: '#66573c', roughness: 1 })
+  );
+  head.position.set(0.16, 0.9, 0);
+  withered.add(head);
+  group.add(withered);
+
+  const flowerMaterial = new THREE.MeshBasicMaterial({
+    color: '#ffe4a5',
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    toneMapped: false
+  });
+  const flowers = new THREE.InstancedMesh(
+    new THREE.IcosahedronGeometry(0.075, 0),
+    flowerMaterial,
+    44
+  );
+  flowers.frustumCulled = false;
+  const dummy = new THREE.Object3D();
+  for (let i = 0; i < 44; i++) {
+    const a = (i / 44) * Math.PI * 2 + Math.random() * 0.2;
+    const r = 1.2 + Math.random() * 1.5;
+    dummy.position.set(Math.cos(a) * r, 0.14, Math.sin(a) * r);
+    dummy.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
+    dummy.scale.setScalar(0.6 + Math.random() * 0.7);
+    dummy.updateMatrix();
+    flowers.setMatrixAt(i, dummy.matrix);
+  }
+  flowers.instanceMatrix.needsUpdate = true;
+  flowers.scale.setScalar(0.001);
+  group.add(flowers);
+
+  // A vine arch a short walk toward the ridge; it grows when the spring is restored.
+  const vineGroup = new THREE.Group();
+  vineGroup.position.set(0, groundAt(world, 0, 52), 52);
+  const vineMaterial = new THREE.MeshStandardMaterial({ color: '#526b38', roughness: 0.9 });
+  const left = tube([
+    new THREE.Vector3(-2.8, 0, 0),
+    new THREE.Vector3(-2.2, 1.5, 0),
+    new THREE.Vector3(-1.2, 2.7, 0)
+  ], 0.09, vineMaterial);
+  const right = tube([
+    new THREE.Vector3(2.8, 0, 0),
+    new THREE.Vector3(2.2, 1.5, 0),
+    new THREE.Vector3(1.2, 2.7, 0)
+  ], 0.09, vineMaterial);
+  const top = tube([
+    new THREE.Vector3(-1.2, 2.7, 0),
+    new THREE.Vector3(0, 3.4, 0),
+    new THREE.Vector3(1.2, 2.7, 0)
+  ], 0.09, vineMaterial);
+  vineGroup.add(left, right, top);
+  vineGroup.scale.setScalar(0.001);
+  scene.add(vineGroup);
+
+  let restored = 0;
+
+  return {
+    group,
+    water,
+    flowers,
+    withered,
+    vineGroup,
+    get restored() { return restored; },
+    setRestored(progress) {
+      restored = THREE.MathUtils.clamp(progress, 0, 1);
+      water.material.opacity = restored * 0.72;
+      dry.material.opacity = 0.9 * (1 - restored * 0.75);
+      flowers.scale.setScalar(0.001 + restored * 0.999);
+      flowerMaterial.opacity = restored * 0.9;
+      vineGroup.scale.setScalar(0.001 + restored * 0.999);
+      withered.scale.setScalar(Math.max(0.001, 1 - restored));
+    }
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/*  sundial                                                           */
+/* ------------------------------------------------------------------ */
+
+function createSundial(scene, world) {
+  const group = new THREE.Group();
+  const x = -9;
+  const z = 114.5;
+  const ground = groundAt(world, x, z);
+  group.position.set(x, ground, z);
+  group.quaternion.setFromUnitVectors(UP, terrainNormal(world, x, z));
+  scene.add(group);
+
+  const stone = new THREE.MeshStandardMaterial({ color: '#8d8778', roughness: 0.95 });
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(2.35, 2.55, 0.28, 20), stone);
+  base.position.y = 0.14;
+  group.add(base);
+
+  const dial = new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.0, 0.1, 32), stone);
+  dial.position.y = 0.32;
+  group.add(dial);
+
+  const shadow = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.18, 2.3),
+    new THREE.MeshBasicMaterial({
+      color: '#1d1a14',
+      transparent: true,
+      opacity: 0.38,
+      depthWrite: false,
+      toneMapped: false
+    })
+  );
+  shadow.geometry.rotateX(-Math.PI / 2);
+  shadow.geometry.translate(0, 0, 1.15);
+  shadow.position.y = 0.385;
+  shadow.renderOrder = 3;
+  group.add(shadow);
+
+  const notch = new THREE.Mesh(
+    new THREE.BoxGeometry(0.12, 0.04, 0.85),
+    new THREE.MeshBasicMaterial({
+      color: '#ffd98c',
+      transparent: true,
+      opacity: 0.22,
+      depthWrite: false,
+      toneMapped: false
+    })
+  );
+  notch.position.set(0, 0.39, 1.45);
+  group.add(notch);
+
+  const gnomon = new THREE.Mesh(
+    new THREE.ConeGeometry(0.12, 1.25, 4),
+    new THREE.MeshStandardMaterial({ color: '#625b4c', roughness: 0.8 })
+  );
+  gnomon.position.y = 0.95;
+  gnomon.rotation.z = 0.28;
+  group.add(gnomon);
+
+  let glow = 0;
+
+  return {
+    group,
+    shadow,
+    notch,
+    update(sunDir, time) {
+      if (sunDir) {
+        const angle = Math.atan2(-sunDir.x, -sunDir.z);
+        shadow.rotation.y += (angle - shadow.rotation.y) * 0.35;
+      }
+      const near = Math.max(0, 1 - Math.abs(time - 0.49) / 0.045);
+      glow += (near - glow) * 0.2;
+      notch.material.opacity = 0.22 + glow * 0.65;
+      notch.scale.setScalar(1 + glow * 0.25);
+    }
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/*  assembly                                                           */
+/* ------------------------------------------------------------------ */
+
+function createJourneyAssets({ scene, world }) {
+  const oldTree = createOldTree(scene, world);
+  const windmill = createWindmill(scene, world);
+  const spring = createDrySpring(scene, world);
+  const sundial = createSundial(scene, world);
+
+  return {
+    oldTree,
+    windmill,
+    spring,
+    sundial,
+    onAnchorSolved(id) {
+      if (id === 'oldTree') oldTree.setAwake(1);
+      if (id === 'windmill') {
+        windmill.setTurning(true);
+        windmill.setSocketLit(true);
+      }
+      if (id === 'spring') spring.setRestored(1);
+      if (id === 'sundial') {
+        // The shadow stays where the player aligned it.
+        sundial.notch.material.color.set('#ffe6a8');
+      }
+    },
+    update(t, dt, wind, sky) {
+      oldTree.update(t, wind);
+      windmill.update(dt, t);
+      sundial.update(sky.lightState?.sunDir, sky.time);
+
+      const ls = sky.lightState;
+      if (ls) {
+        const u = oldTree.material.uniforms;
+        if (ls.color) u.uSunColor.value.copy(ls.color);
+        if (ls.sunDir) u.uSunDir.value.copy(ls.sunDir);
+        u.uSunStrength.value = ls.sunStrength ?? 1;
+        if (ls.haze) u.uHaze.value.copy(ls.haze);
+        u.uNight.value = ls.night || 0;
+        u.uHazeAmount.value = 1;
+      }
+    }
+  };
+}
+return { createJourneyAssets };
+} };
+
+defs["src/engine/mobile-controls.js"] = { deps: [], factory: function (d) {
+
+/* ------------------------------------------------------------------ */
+/*  Mobile input · joystick + lift + camera + shutter + interact       */
+/*                                                                     */
+/*  Framework refactor: this module no longer owns DOM nodes. The Vue  */
+/*  <TouchPad> component renders the thumb stick and the action buttons */
+/*  and forwards normalised input here; the experience derives the      */
+/*  visible button set in `ui.mobile`, so the engine and the UI stay    */
+/*  in one direction only (engine → store → markup).                    */
+/* ------------------------------------------------------------------ */
+
+class MobileControls {
+  constructor({
+    player,
+    onCamera,
+    onShutter,
+    onRecord,
+    onInteract
+  }) {
+    this.player = player;
+    this.onCamera = onCamera;
+    this.onShutter = onShutter;
+    this.onRecord = onRecord;
+    this.onInteract = onInteract;
+
+    this.enabled = false;
+    this.joystickActive = false;
+  }
+
+  setEnabled(on) {
+    this.enabled = !!on;
+    if (!this.enabled) {
+      this.resetJoystick();
+      this.player.setMoveInput(0, 0);
+      this.player.setLiftHeld(false);
+    }
+  }
+
+  /** Normalised stick vector, x/y in -1..1 (y is up). */
+  setJoystick(x, y) {
+    if (!this.enabled) return;
+    this.joystickActive = x !== 0 || y !== 0;
+    this.player.setMoveInput(x, y);
+  }
+
+  resetJoystick() {
+    this.joystickActive = false;
+    this.player.setMoveInput(0, 0);
+  }
+
+  setLiftHeld(on) {
+    if (!this.enabled) return;
+    this.player.setLiftHeld(on);
+  }
+
+  camera() {
+    if (this.enabled) this.onCamera?.();
+  }
+
+  shutter() {
+    if (this.enabled) this.onShutter?.();
+  }
+
+  record() {
+    if (this.enabled) this.onRecord?.();
+  }
+
+  interact() {
+    if (this.enabled) this.onInteract?.();
+  }
+
+  /**
+   * Derive everything the touch HUD needs to show, from the current
+   * progression / camera / anchor state.
+   */
+  describe({
+    liftEnabled,
+    cameraEnabled,
+    cameraActive,
+    placing,
+    canInteract,
+    recording
+  }) {
+    if (!this.enabled) return { enabled: false };
+    return {
+      enabled: true,
+      liftEnabled: !!liftEnabled,
+      cameraEnabled: !!cameraEnabled,
+      cameraLabel: cameraActive ? '退出' : placing ? '取消' : '相机',
+      showShutter: !!cameraActive,
+      showRecord: !!cameraActive,
+      recordLabel: recording ? '停止' : '录制',
+      showInteract: !!canInteract && !cameraActive && !placing
+    };
+  }
+}
+return { MobileControls };
+} };
+
+defs["src/engine/capture.js"] = { deps: [], factory: function (d) {
+
+/* ------------------------------------------------------------------ */
+/*  Frame compositor · photos & short clips                            */
+/*                                                                     */
+/*  Paints the sky gradient, sun/moon bloom, stars, the WebGL scene,    */
+/*  the firefly layer, colour veils and a vignette into one canvas.     */
+/*  Photos export as PNG; clips are recorded with MediaRecorder from a  */
+/*  composited canvas stream.                                          */
+/* ------------------------------------------------------------------ */
+
+function colorStyle(color, fallback) {
+  if (!color) return fallback;
+  if (typeof color.getStyle === 'function') return color.getStyle();
+  return fallback;
+}
+
+function drawSky(ctx, width, height, sky) {
+  const state = sky?.lightState || {};
+  const night = state.night || 0;
+  const golden = state.golden || 0;
+  const day = state.day ?? 1;
+
+  const top = night > 0.55
+    ? '#17233a'
+    : golden > 0.35
+      ? '#d9a36f'
+      : '#b9d4dc';
+  const horizon = colorStyle(state.haze, '#dfe0c6');
+
+  const gradient = ctx.createLinearGradient(0, 0, 0, height);
+  gradient.addColorStop(0, top);
+  gradient.addColorStop(0.64, horizon);
+  gradient.addColorStop(1, horizon);
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, width, height);
+
+  // Sun/moon glow. lightState.x/y are normalized screen coordinates with
+  // the origin at the bottom, so the canvas y is inverted.
+  const sx = state.x;
+  const sy = state.y;
+  if (sx > -0.2 && sx < 1.2 && sy > -0.2 && sy < 1.2) {
+    const px = sx * width;
+    const py = (1 - sy) * height;
+    const color = colorStyle(state.color, '#ffddb0');
+    const radius = Math.max(width, height) * (0.08 + 0.05 * (state.golden || 0));
+    const glow = ctx.createRadialGradient(px, py, 0, px, py, radius);
+    glow.addColorStop(0, color);
+    glow.addColorStop(0.18, color);
+    glow.addColorStop(1, 'rgba(255, 230, 190, 0)');
+    ctx.globalAlpha = 0.55 + 0.35 * day;
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, width, height);
+    ctx.globalAlpha = 1;
+  }
+
+  if (night > 0.15) {
+    // A deterministic star field; enough for a placeholder.
+    ctx.fillStyle = 'rgba(255, 246, 220, 0.82)';
+    for (let i = 1; i <= 90; i++) {
+      const x = ((i * 9301 + 49297) % 233280) / 233280 * width;
+      const y = ((i * 4423 + 7919) % 233280) / 233280 * height * 0.55;
+      const r = 0.5 + (i % 4) * 0.35;
+      ctx.globalAlpha = night * (0.25 + (i % 5) * 0.12);
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
+function drawVeils(ctx, width, height, sky) {
+  const state = sky?.lightState || {};
+  const night = state.night || 0;
+  const golden = state.golden || 0;
+
+  if (night > 0) {
+    ctx.fillStyle = `rgba(19, 28, 48, ${night * 0.34})`;
+    ctx.fillRect(0, 0, width, height);
+  }
+  if (golden > 0) {
+    ctx.fillStyle = `rgba(255, 181, 105, ${golden * 0.08})`;
+    ctx.fillRect(0, 0, width, height);
+  }
+}
+
+function drawVignette(ctx, width, height) {
+  const vignette = ctx.createRadialGradient(
+    width * 0.5,
+    height * 0.5,
+    Math.min(width, height) * 0.22,
+    width * 0.5,
+    height * 0.5,
+    Math.max(width, height) * 0.72
+  );
+  vignette.addColorStop(0, 'rgba(0, 0, 0, 0)');
+  vignette.addColorStop(1, 'rgba(16, 14, 10, 0.34)');
+  ctx.fillStyle = vignette;
+  ctx.fillRect(0, 0, width, height);
+}
+
+function capturePlaceholderPhoto({
+  renderer,
+  fireflyCanvas,
+  sky,
+  width = 1920,
+  height = 1080,
+  onDone
+}) {
+  const out = document.createElement('canvas');
+  out.width = width;
+  out.height = height;
+  const ctx = out.getContext('2d');
+  if (!ctx) return null;
+
+  drawSky(ctx, width, height, sky);
+
+  // The WebGL canvas is drawn immediately after the frame was rendered, so
+  // its drawing buffer is still valid even without preserveDrawingBuffer.
+  try {
+    ctx.drawImage(renderer.domElement, 0, 0, width, height);
+  } catch (err) {
+    console.warn('capture: could not draw scene canvas', err);
+  }
+
+  if (fireflyCanvas) {
+    try {
+      ctx.drawImage(fireflyCanvas, 0, 0, width, height);
+    } catch (err) {
+      /* the overlay may be missing on low-end devices */
+    }
+  }
+
+  drawVeils(ctx, width, height, sky);
+  drawVignette(ctx, width, height);
+
+  const filename = `wind-photo-${Date.now()}.png`;
+  out.toBlob((blob) => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    onDone?.(filename, blob);
+  }, 'image/png');
+
+  return { canvas: out, filename };
+}
+/* ------------------------------------------------------------------ */
+/*  Short video · 5 s composited clip                                  */
+/* ------------------------------------------------------------------ */
+
+function paintVideoFrame(ctx, width, height, { renderer, fireflyCanvas, sky }) {
+  drawSky(ctx, width, height, sky);
+
+  try {
+    ctx.drawImage(renderer.domElement, 0, 0, width, height);
+  } catch (err) {
+    console.warn('capture: could not draw scene canvas', err);
+  }
+
+  if (fireflyCanvas) {
+    try {
+      ctx.drawImage(fireflyCanvas, 0, 0, width, height);
+    } catch (err) {
+      /* overlay may be missing */
+    }
+  }
+
+  drawVeils(ctx, width, height, sky);
+  drawVignette(ctx, width, height);
+}
+
+function supportedMime() {
+  if (typeof MediaRecorder === 'undefined') return '';
+  const candidates = [
+    'video/webm;codecs=vp9',
+    'video/webm;codecs=vp8',
+    'video/webm',
+    'video/mp4'
+  ];
+  return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || '';
+}
+
+function createVideoRecorder({
+  width = 1280,
+  height = 720,
+  fps = 30,
+  duration = 5,
+  onDone,
+  onEmpty,
+  onUnsupported
+}) {
+  const mime = supportedMime();
+  if (!mime || !HTMLCanvasElement.prototype.captureStream) {
+    onUnsupported?.();
+    return null;
+  }
+
+  let canvas = null;
+  let ctx = null;
+  let stream = null;
+  let recorder = null;
+  let chunks = [];
+  let active = false;
+  let startedAt = 0;
+  let resolvedDuration = duration;
+  let painted = 0;
+  const extension = mime.includes('mp4') ? 'mp4' : 'webm';
+
+  function cleanup() {
+    if (stream) {
+      for (const track of stream.getTracks()) track.stop();
+    }
+    stream = null;
+    recorder = null;
+    chunks = [];
+  }
+
+  function stop() {
+    if (!active || !recorder) return;
+    active = false;
+    resolvedDuration = Math.min(duration, (performance.now() - startedAt) / 1000);
+    try {
+      recorder.stop();
+    } catch (err) {
+      cleanup();
+    }
+  }
+
+  function start() {
+    if (active) return false;
+    canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    ctx = canvas.getContext('2d');
+    if (!ctx) return false;
+
+    stream = canvas.captureStream(fps);
+    try {
+      recorder = new MediaRecorder(stream, {
+        mimeType: mime,
+        videoBitsPerSecond: 3_500_000
+      });
+    } catch (err) {
+      cleanup();
+      onUnsupported?.();
+      return false;
+    }
+
+    chunks = [];
+    recorder.ondataavailable = (e) => {
+      if (e.data && e.data.size) chunks.push(e.data);
+    };
+    recorder.onstop = () => {
+      const blob = new Blob(chunks, { type: mime.split(';')[0] });
+      const filename = `wind-clip-${Date.now()}.${extension}`;
+      cleanup();
+      // Very slow devices can end a clip with fewer encoded frames than the
+      // container needs. Treat a header-only blob (a few hundred bytes) as a
+      // failed take so the caller can fall back to a still photo.
+      if (!blob.size || blob.size < 1200) {
+        onEmpty?.(resolvedDuration);
+        return;
+      }
+      onDone?.(filename, blob, resolvedDuration);
+    };
+
+    recorder.start(250);
+    active = true;
+    startedAt = performance.now();
+    resolvedDuration = duration;
+    painted = 0;
+    return true;
+  }
+
+  function frame(deps) {
+    if (!active || !ctx) return;
+    paintVideoFrame(ctx, width, height, deps);
+    painted += 1;
+    const elapsed = (performance.now() - startedAt) / 1000;
+    if (elapsed >= duration) stop();
+  }
+
+  return {
+    start,
+    stop,
+    frame,
+    get active() { return active; },
+    get elapsed() {
+      return active ? (performance.now() - startedAt) / 1000 : resolvedDuration;
+    },
+    get duration() { return duration; },
+    get frames() { return painted; }
+  };
+}
+
+return { capturePlaceholderPhoto, createVideoRecorder };
+} };
+
+defs["src/engine/audio.js"] = { deps: [], factory: function (d) {
+
+/* ------------------------------------------------------------------ */
+/*  Ambience · procedural wind bed + UI sounds                         */
+/*                                                                     */
+/*  No audio files: a looping brown-noise bed follows the wind, and     */
+/*  short synthesised voices answer actions (shutter, record, unlock).  */
+/*  The context is created on the first user gesture, as browsers block */
+/*  audio before interaction.                                          */
+/* ------------------------------------------------------------------ */
+
+function makeBrownNoise(ctx, seconds = 2.4) {
+  const length = Math.floor(ctx.sampleRate * seconds);
+  const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  let last = 0;
+  for (let i = 0; i < length; i++) {
+    const white = Math.random() * 2 - 1;
+    last = 0.985 * last + 0.015 * white;
+    data[i] = last * 3.4;
+  }
+  return buffer;
+}
+
+class Ambience {
+  constructor({ enabled = true } = {}) {
+    this.enabled = !!enabled;
+    this.ctx = null;
+    this.master = null;
+    this.bed = null;
+    this.bedGain = null;
+    this.bedFilter = null;
+    this.hiss = null;
+    this.hissGain = null;
+    this.noise = null;
+    this.started = false;
+  }
+
+  get supported() {
+    return typeof window !== 'undefined' &&
+      !!(window.AudioContext || window.webkitAudioContext);
+  }
+
+  start() {
+    if (!this.supported) return;
+    if (this.ctx) {
+      if (this.ctx.state === 'suspended' && this.enabled) this.ctx.resume().catch(() => {});
+      return;
+    }
+
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AudioCtx();
+    const master = ctx.createGain();
+    master.gain.value = this.enabled ? 1 : 0;
+    master.connect(ctx.destination);
+
+    const noise = makeBrownNoise(ctx);
+
+    // Low wind body: brown noise through a slow low-pass.
+    const bedSrc = ctx.createBufferSource();
+    bedSrc.buffer = noise;
+    bedSrc.loop = true;
+    const bedFilter = ctx.createBiquadFilter();
+    bedFilter.type = 'lowpass';
+    bedFilter.frequency.value = 480;
+    bedFilter.Q.value = 0.7;
+    const bedGain = ctx.createGain();
+    bedGain.gain.value = 0;
+    bedSrc.connect(bedFilter);
+    bedFilter.connect(bedGain);
+    bedGain.connect(master);
+    bedSrc.start();
+
+    // Airy hiss that opens up while flying.
+    const hissSrc = ctx.createBufferSource();
+    hissSrc.buffer = noise;
+    hissSrc.loop = true;
+    const hissFilter = ctx.createBiquadFilter();
+    hissFilter.type = 'bandpass';
+    hissFilter.frequency.value = 1900;
+    hissFilter.Q.value = 1.2;
+    const hissGain = ctx.createGain();
+    hissGain.gain.value = 0;
+    hissSrc.connect(hissFilter);
+    hissFilter.connect(hissGain);
+    hissGain.connect(master);
+    hissSrc.start();
+
+    this.ctx = ctx;
+    this.master = master;
+    this.noise = noise;
+    this.bed = bedSrc;
+    this.bedFilter = bedFilter;
+    this.bedGain = bedGain;
+    this.hiss = hissSrc;
+    this.hissGain = hissGain;
+    this.started = true;
+
+    if (ctx.state === 'suspended' && this.enabled) ctx.resume().catch(() => {});
+  }
+
+  setEnabled(on) {
+    this.enabled = !!on;
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    const gain = this.master.gain;
+    gain.cancelScheduledValues(now);
+
+    if (this.enabled) {
+      if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
+      // Fade back in from silence to avoid a click.
+      gain.value = 0.0001;
+      gain.setValueAtTime(0.0001, now);
+      gain.exponentialRampToValueAtTime(1, now + 0.25);
+      return;
+    }
+
+    // A suspended context freezes automation, so hard-zero the intrinsic
+    // value as well; otherwise a muted tab could keep gain at 1.
+    if (this.ctx.state !== 'running') {
+      gain.value = 0;
+      gain.setValueAtTime(0, now);
+      return;
+    }
+
+    // Quick fade, then hard-zero and suspend so muted devices stop paying
+    // for the audio graph.
+    gain.setTargetAtTime(0.0001, now, 0.05);
+    setTimeout(() => {
+      if (this.enabled || !this.ctx) return;
+      const t = this.ctx.currentTime;
+      gain.cancelScheduledValues(t);
+      gain.setValueAtTime(0, t);
+      if (this.ctx.state === 'running') this.ctx.suspend().catch(() => {});
+    }, 220);
+  }
+
+  toggle() {
+    this.setEnabled(!this.enabled);
+    return this.enabled;
+  }
+
+  /**
+   * Follow the local weather. Values are already normalised by the caller.
+   * speed: 0..1 rolling speed, altitude: 0..1 height, breeze: 0..1 natural wind.
+   */
+  update({ speed = 0, altitude = 0, breeze = 0, gust = 0 } = {}) {
+    if (!this.ctx || !this.bedGain) return;
+    const now = this.ctx.currentTime;
+    const target = Math.min(
+      0.26,
+      0.035 + breeze * 0.1 + speed * 0.13 + gust * 0.08 + altitude * 0.05
+    );
+    this.bedGain.gain.setTargetAtTime(target, now, 0.25);
+    this.bedFilter.frequency.setTargetAtTime(
+      360 + speed * 420 + gust * 260 + altitude * 180,
+      now,
+      0.3
+    );
+    this.hissGain.gain.setTargetAtTime(altitude * 0.045, now, 0.3);
+    this.hiss?.playbackRate?.setTargetAtTime?.(0.9 + speed * 0.3, now, 0.3);
+  }
+
+  _tone({ freq, type = 'sine', dur = 0.3, gain = 0.07, slide = 0, delay = 0 }) {
+    if (!this.ctx || !this.enabled) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime + delay;
+    const osc = ctx.createOscillator();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t);
+    if (slide) {
+      osc.frequency.exponentialRampToValueAtTime(
+        Math.max(35, freq + slide),
+        t + dur
+      );
+    }
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0.0001, t);
+    env.gain.exponentialRampToValueAtTime(gain, t + 0.012);
+    env.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(env);
+    env.connect(this.master);
+    osc.start(t);
+    osc.stop(t + dur + 0.04);
+  }
+
+  _burst({ dur = 0.12, freq = 1200, q = 0.9, gain = 0.1, type = 'bandpass', delay = 0 }) {
+    if (!this.ctx || !this.enabled || !this.noise) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime + delay;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise;
+    const filter = ctx.createBiquadFilter();
+    filter.type = type;
+    filter.frequency.value = freq;
+    filter.Q.value = q;
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0.0001, t);
+    env.gain.exponentialRampToValueAtTime(gain, t + 0.008);
+    env.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(filter);
+    filter.connect(env);
+    env.connect(this.master);
+    src.start(t, Math.random() * 0.6);
+    src.stop(t + dur + 0.03);
+  }
+
+  play(name) {
+    if (!this.ctx || !this.enabled) return;
+    switch (name) {
+      case 'shutter':
+        this._burst({ dur: 0.07, freq: 2600, q: 1.4, gain: 0.12 });
+        this._tone({ freq: 1500, type: 'square', dur: 0.03, gain: 0.025 });
+        break;
+      case 'recordStart':
+        this._tone({ freq: 660, dur: 0.09, gain: 0.06 });
+        this._tone({ freq: 990, dur: 0.12, gain: 0.06, delay: 0.1 });
+        break;
+      case 'recordStop':
+        this._tone({ freq: 720, dur: 0.09, gain: 0.05 });
+        this._tone({ freq: 480, dur: 0.15, gain: 0.05, delay: 0.09 });
+        break;
+      case 'unlock':
+        this._tone({ freq: 523.25, type: 'triangle', dur: 0.22, gain: 0.055 });
+        this._tone({ freq: 659.25, type: 'triangle', dur: 0.22, gain: 0.05, delay: 0.09 });
+        this._tone({ freq: 783.99, type: 'triangle', dur: 0.34, gain: 0.045, delay: 0.18 });
+        break;
+      case 'plant':
+        this._tone({ freq: 392, type: 'triangle', dur: 0.16, gain: 0.04 });
+        this._burst({ dur: 0.06, freq: 900, q: 0.8, gain: 0.03 });
+        break;
+      case 'place':
+        this._tone({ freq: 330, type: 'triangle', dur: 0.14, gain: 0.05 });
+        break;
+      case 'lift':
+        this._burst({ dur: 0.45, freq: 700, q: 0.6, gain: 0.05, type: 'lowpass' });
+        this._tone({ freq: 196, dur: 0.5, gain: 0.04, slide: 90 });
+        break;
+      case 'land':
+        this._tone({ freq: 96, dur: 0.26, gain: 0.09, slide: -34 });
+        this._burst({ dur: 0.18, freq: 320, q: 0.7, gain: 0.05, type: 'lowpass' });
+        break;
+      default:
+        break;
+    }
+  }
+}
+return { Ambience };
+} };
+
+defs["src/engine/sky.js"] = { deps: ["three", "src/engine/dandelion.js"], factory: function (d) {
+      const THREE = d["three"].THREE;
+      const { dandelionAtmosphere } = d["src/engine/dandelion.js"];
 
 
 /* ------------------------------------------------------------------ */
@@ -7209,6 +11137,8 @@ defs["js/sky.js"] = { deps: ["three", "js/dandelion.js"], factory: function (d) 
 /* ------------------------------------------------------------------ */
 
 const TAU = Math.PI * 2;
+const SKY_RADIUS = 1000;
+const SUN_MAX_ALT = 0.5236; // 30° — the tilted celestial arc
 
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
@@ -7283,33 +11213,64 @@ const scratch = {
 };
 
 class Sky {
-  constructor({ wind, world, keyLight, hemi, fill, rim, initial = 0.4 }) {
+  constructor({ wind, world, keyLight, hemi, fill, rim, initial = 0.4, camera = null, celestial3D = false, coarse = false }) {
     this.wind = wind;
     this.world = world;
     this.keyLight = keyLight;
     this.hemi = hemi;
     this.fill = fill;
     this.rim = rim;
-
-    this.rootEl = document.documentElement;
-    this.themeMeta = document.querySelector('meta[name="theme-color"]');
-    this.nightVeil = document.getElementById('nightVeil');
-    this.goldenVeil = document.getElementById('goldenVeil');
-    this.starsEl = document.getElementById('stars');
-    this.skyGlow = document.querySelector('.sky-glow');
-    this.atmosphere = document.querySelector('.atmosphere');
-    this.foreSky = document.querySelector('.fore-sky');
-    this.raysEl = document.getElementById('sunRays');
-
-    this.sunBody = document.getElementById('sunBody');
-    this.moonBody = document.getElementById('moonBody');
-    this.sunHalo = this.sunBody.querySelector('.celestial__halo');
-    this.moonHalo = this.moonBody.querySelector('.celestial__halo');
-    this.sunDisc = this.sunBody.querySelector('.celestial__disc--sun');
-    this.moonDisc = this.moonBody.querySelector('.celestial__disc--moon');
-    this.arc = document.getElementById('celestialArc');
-    this.arcPath = document.getElementById('celestialArcPath');
-    this.arcLower = document.getElementById('celestialArcBelow');
+    this.camera = camera || null;
+    this.celestial3D = !!celestial3D;
+    this.coarse = !!coarse;
+    this.sunDir = new THREE.Vector3(0, Math.sin(SUN_MAX_ALT), -Math.cos(SUN_MAX_ALT));
+    this.moonDir = new THREE.Vector3(0, -Math.sin(SUN_MAX_ALT), Math.cos(SUN_MAX_ALT));
+    this.sunProj = { x: 0, y: 0, ndcX: 0, ndcY: 0, inFront: false, onScreen: false, visible: false };
+    this.moonProj = { x: 0, y: 0, ndcX: 0, ndcY: 0, inFront: false, onScreen: false, visible: false };
+    this._sunVisible = false;
+    this._moonVisible = false;
+    this._sunBaseDisc = 0;
+    this._sunBaseHalo = 0;
+    this._moonBaseDisc = 0;
+    this._moonBaseHalo = 0;
+    this._baseGlow = 0;
+    this._baseGolden = 0;
+    this._baseRays = 0;
+    this._arcTick = 0;
+    this._bodyScratch = new THREE.Vector3();
+    this._viewScratch = new THREE.Vector3();
+    this._pathScratch = new THREE.Vector3();
+    // No DOM handles here: the class emits a plain paint snapshot and the
+    // Vue layer renders it (see src/app/lib/sky-painter.js). This keeps the
+    // simulation testable and the markup declarative.
+    this.onPaint = null;
+    this.paint = {
+      bodies: {
+        sun: {
+          x: 0, y: 0, disc: 0, halo: 0, hidden: true, below: true,
+          golden: false, active: false, pressing: false, tipped: false
+        },
+        moon: {
+          x: 0, y: 0, disc: 0, halo: 0, hidden: true, below: true,
+          golden: false, active: false, pressing: false, tipped: false
+        }
+      },
+      arc: { above: '', below: '', visible: false },
+      night: 0,
+      golden: 0,
+      stars: 0,
+      glow: { x: 0, y: 0, opacity: 0 },
+      rays: { x: 0, y: 0, opacity: 0, rgb: '255, 236, 205' },
+      clouds: { hi: '#fffdf6', lo: '#c3cccc', warm: 'rgba(255, 180, 120, 0)' },
+      ink: { ink: 'rgb(65, 75, 54)', soft: '', faint: '', line: '' },
+      theme: '#e0e0c6',
+      time: { pct: 0, label: '' },
+      sky3d: !!celestial3D,
+      viewWidth: window.innerWidth,
+      viewHeight: window.innerHeight
+    };
+    this.tipBody = null;
+    this._tipTimers = [];
 
     this.time = clamp01(initial);
     // One full day (sun + moon) takes two minutes. The DOM and every shader
@@ -7318,6 +11279,7 @@ class Sky {
     this.flowAccum = 0;
     this.flowPause = 0;
     this.flowEnabled = true;
+    this.interactive = true; // gated by the 'time' ability in the journey mode
     this.params = { holdDelay: 100 };
     this.lightState = {
       x: 0.8,
@@ -7341,11 +11303,14 @@ class Sky {
     this.pressStartY = 0;
     this.visibleBody = 'sun';
 
-    this._buildStars();
-    this._bind();
     this._layout();
     this.set(this.time);
     this._firstHint();
+  }
+
+  /** Push the latest paint snapshot to whoever is rendering the sky. */
+  emit() {
+    if (typeof this.onPaint === 'function') this.onPaint(this.paint);
   }
 
   /* ---------------- geometry --------------------------------------- */
@@ -7356,34 +11321,192 @@ class Sky {
     // A phone held sideways is very short: keep the noon body inside the top
     // edge instead of letting it slide under the notch, and flatten the arc
     // so sunrise/sunset still sit on the horizon.
-    const phoneLandscape =
-      window.matchMedia('(pointer: coarse)').matches &&
-      H <= 560 && W / H >= 1.2;
+    const phoneLandscape = this.coarse && H <= 560 && W / H >= 1.2;
     this.cx = W * 0.5;
     this.cy = H * (phoneLandscape ? 0.56 : 0.53);
     this.rx = W * (phoneLandscape ? 0.36 : 0.4);
     this.ry = H * (phoneLandscape ? 0.30 : 0.375);
+    this.paint.viewWidth = W;
+    this.paint.viewHeight = H;
 
-    if (this.arc && this.arcPath) {
-      this.arc.setAttribute('viewBox', `0 0 ${W} ${H}`);
-      this.arcPath.setAttribute(
-        'd',
+    if (this.celestial3D) {
+      // The projected 3D celestial circle is written by _updateArc3D().
+      this.paint.arc.above = '';
+      this.paint.arc.below = '';
+    } else {
+      this.paint.arc.above =
         `M ${(this.cx - this.rx).toFixed(2)} ${this.cy.toFixed(2)} ` +
         `A ${this.rx.toFixed(2)} ${this.ry.toFixed(2)} 0 0 1 ` +
-        `${(this.cx + this.rx).toFixed(2)} ${this.cy.toFixed(2)}`
-      );
-      this.arcLower?.setAttribute(
-        'd',
+        `${(this.cx + this.rx).toFixed(2)} ${this.cy.toFixed(2)}`;
+      this.paint.arc.below =
         `M ${(this.cx - this.rx).toFixed(2)} ${this.cy.toFixed(2)} ` +
         `A ${this.rx.toFixed(2)} ${this.ry.toFixed(2)} 0 0 0 ` +
-        `${(this.cx + this.rx).toFixed(2)} ${this.cy.toFixed(2)}`
-      );
+        `${(this.cx + this.rx).toFixed(2)} ${this.cy.toFixed(2)}`;
     }
   }
 
   resize() {
     this._layout();
     this.set(this.time);
+  }
+
+  /* ---------------- 3D celestial model --------------------------- */
+
+  _direction(t, out) {
+    // A real tilted great circle: sunrise on the east horizon, noon high
+    // in the south, sunset on the west horizon. The moon is the opposite
+    // point, half a day away.
+    const a = (t - 0.25) * TAU;
+    const c = Math.cos(a);
+    return out.set(
+      -Math.sin(a),
+      c * Math.sin(SUN_MAX_ALT),
+      -c * Math.cos(SUN_MAX_ALT)
+    ).normalize();
+  }
+
+  _project(dir, state) {
+    if (!this.camera) {
+      state.visible = false;
+      state.onScreen = false;
+      state.inFront = false;
+      return state;
+    }
+    const cam = this.camera;
+    cam.updateMatrixWorld();
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    const world = this._bodyScratch.copy(dir).multiplyScalar(SKY_RADIUS).add(cam.position);
+    const view = this._viewScratch.copy(world).applyMatrix4(cam.matrixWorldInverse);
+    const inFront = view.z < -0.1;
+    const ndc = world.project(cam);
+    state.x = (ndc.x * 0.5 + 0.5) * W;
+    state.y = (0.5 - ndc.y * 0.5) * H;
+    state.ndcX = ndc.x;
+    state.ndcY = ndc.y;
+    state.inFront = inFront;
+    state.onScreen = Math.abs(ndc.x) <= 1.12 && Math.abs(ndc.y) <= 1.12;
+    state.visible = inFront && state.onScreen;
+    return state;
+  }
+
+  _isOccluded(dir) {
+    const world = this.world;
+    const cam = this.camera;
+    if (!world || typeof world.heightAt !== 'function' || !cam) return false;
+    const maxR = world.terrain?.radius ?? 345;
+    const maxR2 = maxR * maxR;
+    // March the heightfield instead of raycasting all 74k triangles.
+    for (let t = 4; t < SKY_RADIUS; t += 9) {
+      const x = cam.position.x + dir.x * t;
+      const y = cam.position.y + dir.y * t;
+      const z = cam.position.z + dir.z * t;
+      if (x * x + z * z > maxR2) break;
+      if (y < world.heightAt(x, z) + 0.15) return true;
+    }
+    return false;
+  }
+
+  _updateArc3D() {
+    if (!this.celestial3D || !this.camera) return;
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    const cam = this.camera;
+    cam.updateMatrixWorld();
+
+    const projectPoint = (dir) => {
+      const world = this._pathScratch.copy(dir).multiplyScalar(SKY_RADIUS).add(cam.position);
+      const view = world.clone().applyMatrix4(cam.matrixWorldInverse);
+      if (view.z > -0.1) return null;
+      const ndc = world.project(cam);
+      if (Math.abs(ndc.x) > 1.08 || Math.abs(ndc.y) > 1.08) return null;
+      return [
+        (ndc.x * 0.5 + 0.5) * W,
+        (0.5 - ndc.y * 0.5) * H
+      ];
+    };
+
+    const build = (above) => {
+      let d = '';
+      let drawing = false;
+      for (let i = 0; i <= 180; i++) {
+        const dir = this._direction(i / 180, this._bodyScratch);
+        if ((dir.y >= 0) !== above) {
+          drawing = false;
+          continue;
+        }
+        const p = projectPoint(dir);
+        if (!p) {
+          drawing = false;
+          continue;
+        }
+        d += (drawing ? ' L ' : ' M ') +
+          p[0].toFixed(1) + ' ' + p[1].toFixed(1);
+        drawing = true;
+      }
+      return d;
+    };
+
+    this.paint.arc.above = build(true);
+    this.paint.arc.below = build(false);
+    this.emit();
+  }
+
+  _applyScreenPositions() {
+    if (!this.celestial3D) return;
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    const sun = this._project(this.sunDir, this.sunProj);
+    const moon = this._project(this.moonDir, this.moonProj);
+    const sunOccluded = sun.visible ? this._isOccluded(this.sunDir) : false;
+    const moonOccluded = moon.visible ? this._isOccluded(this.moonDir) : false;
+    this._sunVisible = !!(sun.visible && !sunOccluded);
+    this._moonVisible = !!(moon.visible && !moonOccluded);
+
+    this._placeBody('sun', sun.x, sun.y, this._sunVisible ? 1 : 0);
+    this._placeBody('moon', moon.x, moon.y, this._moonVisible ? 1 : 0);
+
+    const sOn = this._sunVisible ? 1 : 0;
+    const mOn = this._moonVisible ? 1 : 0;
+    this.paint.bodies.sun.disc = this._sunBaseDisc * sOn;
+    this.paint.bodies.sun.halo = this._sunBaseHalo * sOn;
+    this.paint.bodies.moon.disc = this._moonBaseDisc * mOn;
+    this.paint.bodies.moon.halo = this._moonBaseHalo * mOn;
+
+    const activeIsSun = this.visibleBody === 'sun';
+    const active = activeIsSun ? sun : moon;
+    this.paint.glow.x = active.x / W;
+    this.paint.glow.y = active.y / H;
+    this.paint.glow.opacity = this._baseGlow * (active.visible ? 1 : 0);
+
+    this.paint.goldenX = sun.x / W;
+    this.paint.goldenY = sun.y / H;
+    this.paint.golden = sun.visible ? this._baseGolden : 0;
+
+    this.paint.rays.x = sun.x / W;
+    this.paint.rays.y = sun.y / H;
+    this.paint.rays.opacity = this._baseRays * sOn;
+
+    // The scatter follows the projected light body while it is on screen,
+    // even when the disc itself is hidden behind a ridge.
+    if (this.lightState) {
+      const light = this._lightBody === 'moon' ? moon : sun;
+      this.lightState.x = light.visible ? light.x / W : -2;
+      this.lightState.y = light.visible ? 1 - light.y / H : -2;
+    }
+
+    this._arcTick = (this._arcTick + 1) % 3;
+    if (this._arcTick === 0) {
+      this._updateArc3D();
+      return;
+    }
+    this.emit();
+  }
+
+  sync(camera) {
+    if (!this.celestial3D) return;
+    if (camera) this.camera = camera;
+    this._applyScreenPositions();
   }
 
   /* ---------------- time of day ------------------------------------ */
@@ -7413,6 +11536,31 @@ class Sky {
     this.set((this.time + advance / this.timeCycle) % 1);
   }
 
+  setInteractive(on) {
+    this.interactive = !!on;
+    if (!this.interactive) {
+      this.active = false;
+      this.pressing = false;
+      this.pressBody = null;
+      this.pressType = null;
+      this.paint.arc.visible = false;
+      this._paintFlags();
+    }
+    this.emit();
+  }
+
+  /** Body press state is part of the paint snapshot, not a DOM side effect. */
+  _paintFlags() {
+    for (const type of ['sun', 'moon']) {
+      const body = this.paint.bodies[type];
+      body.active = this.active && this.pressType === type;
+      body.pressing = this.pressing && this.pressType === type;
+      body.tipped = this.tipBody === type;
+      body.pointerEvents = this.interactive && !body.hidden;
+    }
+    this.paint.arc.visible = !!this.active;
+  }
+
   setFlow(on) {
     this.flowEnabled = !!on;
     this.flowAccum = 0;
@@ -7439,108 +11587,78 @@ class Sky {
     return Math.atan2(ny, nx);
   }
 
-  /* ---------------- stars ----------------------------------------- */
+/* ---------------- interaction ---------------------------------- */
 
-  _buildStars() {
-    if (!this.starsEl) return;
-    const c = document.createElement('canvas');
-    c.width = 1600;
-    c.height = 900;
-    const ctx = c.getContext('2d');
+  // Pointer and keyboard handlers live in the Vue components; they call
+  // these methods. The engine never touches an element directly.
 
-    for (let i = 0; i < 320; i++) {
-      const x = Math.random() * c.width;
-      const y = Math.pow(Math.random(), 0.9) * c.height * 0.86;
-      const big = Math.random() > 0.92;
-      const r = big ? 1.2 + Math.random() * 1.1 : 0.35 + Math.random() * 0.9;
-      const a = big ? 0.55 + Math.random() * 0.4 : 0.2 + Math.random() * 0.55;
-      ctx.beginPath();
-      ctx.fillStyle = `rgba(255, 249, 234, ${a})`;
-      ctx.arc(x, y, r, 0, TAU);
-      ctx.fill();
-    }
+  beginPress({ type, pointerId = null, clientX = 0, clientY = 0, pointerType = 'mouse', button = 0 }) {
+    if (!this.interactive) return false;
+    if (pointerType === 'mouse' && button !== 0) return false;
+    if (this.active) return false;
+    if (type !== 'sun' && type !== 'moon') return false;
 
-    for (let i = 0; i < 16; i++) {
-      const x = Math.random() * c.width;
-      const y = Math.random() * c.height * 0.75;
-      const g = ctx.createRadialGradient(x, y, 0, x, y, 7 + Math.random() * 8);
-      g.addColorStop(0, 'rgba(255, 250, 238, 0.5)');
-      g.addColorStop(1, 'rgba(255, 250, 238, 0)');
-      ctx.fillStyle = g;
-      ctx.fillRect(x - 20, y - 20, 40, 40);
-    }
-
-    this.starsEl.style.backgroundImage = `url(${c.toDataURL('image/png')})`;
-  }
-
-  /* ---------------- interaction ---------------------------------- */
-
-  _bind() {
-    const begin = (type) => (e) => this._beginPress(e, type);
-    this.sunBody.addEventListener('pointerdown', begin('sun'));
-    this.moonBody.addEventListener('pointerdown', begin('moon'));
-
-    for (const body of [this.sunBody, this.moonBody]) {
-      body.addEventListener('pointermove', (e) => this._movePress(e));
-      body.addEventListener('pointerup', (e) => this._endPress(e));
-      body.addEventListener('pointercancel', (e) => this._endPress(e));
-      body.addEventListener('lostpointercapture', (e) => this._endPress(e));
-      body.addEventListener('keydown', (e) => this._key(e));
-    }
-  }
-
-  _beginPress(e, type) {
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
-    if (this.active) return;
-
-    e.preventDefault();
-    e.stopPropagation();
     this.wind.cancelGesture();
-
-    const body = type === 'sun' ? this.sunBody : this.moonBody;
     this.pressType = type;
-    this.pressBody = body;
-    this.pressPointerId = e.pointerId;
+    this.pressBody = type;
+    this.pressPointerId = pointerId;
     this.pressStartAngle = this._bodyAngle(type);
-    this.pressPointerAngle = this._pointerAngle(e.clientX, e.clientY);
+    this.pressPointerAngle = this._pointerAngle(clientX, clientY);
     this.dragPointerRaw = this.pressPointerAngle;
     this.dragAngleAccum = 0;
-    this.pressStartX = e.clientX;
-    this.pressStartY = e.clientY;
+    this.pressStartX = clientX;
+    this.pressStartY = clientY;
+    this.pressStartTime = this.time;
     this.pressing = true;
     this.interactedWithSky = true;
-
-    body.classList.remove('is-tipped');
-    body.classList.add('is-pressing');
-
-    try { body.setPointerCapture(e.pointerId); } catch (err) { /* noop */ }
+    this.tipBody = null;
 
     this._clearPressTimer();
+
+    if (this.celestial3D) {
+      // A real celestial body is grabbed directly: no hold gesture and no
+      // fixed arc. Dragging horizontally advances/reverses the day.
+      this.active = true;
+      this._paintFlags();
+      this.emit();
+      return true;
+    }
+
     this.pressTimer = setTimeout(() => {
       this.active = true;
       this.pressing = true;
       this.pressTimer = 0;
-      body.classList.add('is-active');
-      if (this.arc) this.arc.classList.add('is-visible');
+      this._paintFlags();
+      this.emit();
     }, this.params.holdDelay);
+    this._paintFlags();
+    this.emit();
+    return true;
   }
 
-  _movePress(e) {
-    e.stopPropagation();
-    if (!this.pressing) return;
+  movePress({ clientX = 0, clientY = 0 }) {
+    if (!this.pressing) return false;
 
-    if (!this.active) {
-      if (Math.hypot(e.clientX - this.pressStartX, e.clientY - this.pressStartY) > 12) {
-        this._clearPressTimer();
-        this.pressing = false;
-        if (this.pressBody) this.pressBody.classList.remove('is-pressing');
-      }
-      return;
+    if (this.celestial3D) {
+      const dx = clientX - this.pressStartX;
+      const dy = clientY - this.pressStartY;
+      const dayShift = (dx + dy * 0.28) / Math.max(window.innerWidth, 1) * 0.9;
+      this.set(this.pressStartTime + dayShift);
+      return true;
     }
 
-    e.preventDefault();
+    if (!this.active) {
+      if (Math.hypot(clientX - this.pressStartX, clientY - this.pressStartY) > 12) {
+        this._clearPressTimer();
+        this.pressing = false;
+        this.pressBody = null;
+        this._paintFlags();
+        this.emit();
+      }
+      return false;
+    }
 
-    const raw = this._pointerAngle(e.clientX, e.clientY);
+    const raw = this._pointerAngle(clientX, clientY);
     let delta = raw - this.dragPointerRaw;
     if (delta > Math.PI) delta -= TAU;
     else if (delta < -Math.PI) delta += TAU;
@@ -7552,24 +11670,17 @@ class Sky {
       ? (Math.PI - target) / TAU
       : (TAU - target) / TAU;
     this.set(((rawT % 1) + 1) % 1);
+    return true;
   }
 
-  _endPress(e) {
-    e.stopPropagation();
+  endPress() {
     this._clearPressTimer();
     this.pressing = false;
     this.active = false;
     this.pressType = null;
-
-    if (this.pressBody) {
-      this.pressBody.classList.remove('is-pressing', 'is-active');
-      if (this.pressPointerId !== null) {
-        try { this.pressBody.releasePointerCapture(this.pressPointerId); } catch (err) { /* noop */ }
-      }
-    }
-    this.pressPointerId = null;
     this.pressBody = null;
-    if (this.arc) this.arc.classList.remove('is-visible');
+    this.pressPointerId = null;
+    this._paintFlags();
     // Let the chosen moment sit for a beat before the slow cycle resumes.
     this.flowPause = 2.5;
     this.set(this.time);
@@ -7582,49 +11693,91 @@ class Sky {
     }
   }
 
-  _key(e) {
-    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-      e.preventDefault();
+  /** Keyboard scrubbing: ← → step the clock, Home/End jump to sunrise/midnight. */
+  nudge(key) {
+    if (!this.interactive) return false;
+    if (key === 'ArrowLeft' || key === 'ArrowRight') {
       this.flowPause = 1.5;
-      this.set(this.time + (e.key === 'ArrowRight' ? 0.04 : -0.04));
-    } else if (e.key === 'Home') {
-      e.preventDefault();
+      this.set(this.time + (key === 'ArrowRight' ? 0.04 : -0.04));
+      return true;
+    }
+    if (key === 'Home') {
       this.flowPause = 1.5;
       this.set(0);
-    } else if (e.key === 'End') {
-      e.preventDefault();
+      return true;
+    }
+    if (key === 'End') {
       this.flowPause = 1.5;
       this.set(0.75);
+      return true;
     }
+    return false;
   }
 
   _firstHint() {
-    setTimeout(() => {
-      if (!this.interactedWithSky && !this.active) {
-        const target = this.visibleBody === 'moon' ? this.moonBody : this.sunBody;
-        if (!target) return;
-        target.classList.add('is-tipped');
-        setTimeout(() => target.classList.remove('is-tipped'), 7200);
-      }
-    }, 1500);
+    this._tipTimers.push(setTimeout(() => {
+      if (!this.interactive) return;
+      if (this.interactedWithSky || this.active) return;
+      const target = this.visibleBody === 'moon' ? 'moon' : 'sun';
+      if (this.paint.bodies[target].hidden) return;
+      this.tipBody = target;
+      this._paintFlags();
+      this.emit();
+      this._tipTimers.push(setTimeout(() => {
+        this.tipBody = null;
+        this._paintFlags();
+        this.emit();
+      }, 7200));
+    }, 1500));
+  }
+
+  /** Release timers (Vue unmount / hot reload). */
+  dispose() {
+    this._clearPressTimer();
+    for (const timer of this._tipTimers) clearTimeout(timer);
+    this._tipTimers.length = 0;
+    this.onPaint = null;
   }
 
   /* ---------------- the actual time change ------------------------ */
 
   set(t) {
     this.time = clamp01(t);
-    const { sun, moon } = this._angles();
 
     const W = window.innerWidth;
     const H = window.innerHeight;
 
-    const sunX = this.cx + this.rx * Math.cos(sun);
-    const sunY = this.cy - this.ry * Math.sin(sun);
-    const moonX = this.cx + this.rx * Math.cos(moon);
-    const moonY = this.cy - this.ry * Math.sin(moon);
+    let sunX;
+    let sunY;
+    let moonX;
+    let moonY;
+    let sunAlt;
+    let moonAlt;
 
-    const sunAlt = Math.sin(sun);
-    const moonAlt = -sunAlt;
+    if (this.celestial3D) {
+      // Real world-space directions: a tilted great circle through the
+      // east and west horizon. Screen positions are only projections of
+      // these bodies, so orbiting the camera can take them out of frame.
+      this._direction(this.time, this.sunDir);
+      this._direction(this.time + 0.5, this.moonDir);
+      sunAlt = this.sunDir.y;
+      moonAlt = this.moonDir.y;
+
+      const sp = this._project(this.sunDir, this.sunProj);
+      const mp = this._project(this.moonDir, this.moonProj);
+      sunX = sp.x;
+      sunY = sp.y;
+      moonX = mp.x;
+      moonY = mp.y;
+    } else {
+      const { sun, moon } = this._angles();
+      sunX = this.cx + this.rx * Math.cos(sun);
+      sunY = this.cy - this.ry * Math.sin(sun);
+      moonX = this.cx + this.rx * Math.cos(moon);
+      moonY = this.cy - this.ry * Math.sin(moon);
+      sunAlt = Math.sin(sun);
+      moonAlt = -sunAlt;
+    }
 
     const day = smooth01(0.07, 0.5, sunAlt);
     const night = 1 - smooth01(-0.36, 0.08, sunAlt);
@@ -7635,42 +11788,56 @@ class Sky {
     this.visibleBody = sunA >= moonA ? 'sun' : 'moon';
 
     /* --- bodies --------------------------------------------------- */
-    this._placeBody(this.sunBody, sunX, sunY, sunA);
-    this._placeBody(this.moonBody, moonX, moonY, moonA);
-
-    const sunGhost = this.pressBody === this.sunBody && this.pressing && sunA < 0.02 ? 0.14 : 0;
-    const moonGhost = this.pressBody === this.moonBody && this.pressing && moonA < 0.02 ? 0.12 : 0;
-
-    this.sunDisc.style.opacity = (sunA * 0.92 + sunGhost).toFixed(3);
-    this.moonDisc.style.opacity = (moonA * 0.84 + moonGhost).toFixed(3);
-    this.sunHalo.style.opacity = (sunA * 0.7 + sunGhost * 0.45).toFixed(3);
-    this.moonHalo.style.opacity = (moonA * 0.55 + moonGhost * 0.45).toFixed(3);
-
-    const sunHalo = mixRgb(mixRgb(HALO_NIGHT, HALO_GOLDEN, golden), HALO_DAY, day);
-    this.sunBody.style.setProperty('--halo-color', rgbCss(sunHalo, 0.6));
-    this.moonBody.style.setProperty(
-      '--halo-color',
-      rgbCss(mixRgb(HALO_NIGHT, [190, 210, 244], 0.45), 0.42)
+    this.paint.bodies.sun.x = sunX;
+    this.paint.bodies.sun.y = sunY;
+    this.paint.bodies.moon.x = moonX;
+    this.paint.bodies.moon.y = moonY;
+    this._placeBody(
+      'sun', sunX, sunY,
+      this.celestial3D ? (this.sunProj.visible ? 1 : 0) : sunA
+    );
+    this._placeBody(
+      'moon', moonX, moonY,
+      this.celestial3D ? (this.moonProj.visible ? 1 : 0) : moonA
     );
 
-    this.sunBody.classList.toggle('is-golden', golden > 0.32);
-    this.moonBody.classList.toggle('is-golden', golden > 0.32);
+    const sunGhost = this.pressBody === 'sun' && this.pressing && sunA < 0.02 ? 0.14 : 0;
+    const moonGhost = this.pressBody === 'moon' && this.pressing && moonA < 0.02 ? 0.12 : 0;
+
+    this._sunBaseDisc = sunA * 0.92 + sunGhost;
+    this._moonBaseDisc = moonA * 0.84 + moonGhost;
+    this._sunBaseHalo = sunA * 0.7 + sunGhost * 0.45;
+    this._moonBaseHalo = moonA * 0.55 + moonGhost * 0.45;
+
+    this.paint.bodies.sun.disc = this._sunBaseDisc;
+    this.paint.bodies.moon.disc = this._moonBaseDisc;
+    this.paint.bodies.sun.halo = this._sunBaseHalo;
+    this.paint.bodies.moon.halo = this._moonBaseHalo;
+
+    const sunHalo = mixRgb(mixRgb(HALO_NIGHT, HALO_GOLDEN, golden), HALO_DAY, day);
+    this.paint.bodies.sun.haloColor = rgbCss(sunHalo, 0.6);
+    this.paint.bodies.moon.haloColor = rgbCss(
+      mixRgb(HALO_NIGHT, [190, 210, 244], 0.45), 0.42
+    );
+
+    this.paint.bodies.sun.golden = golden > 0.32;
+    this.paint.bodies.moon.golden = golden > 0.32;
 
     /* --- overlays & UI ------------------------------------------- */
-    this.nightVeil.style.opacity = (night * 0.78).toFixed(3);
-    this.goldenVeil.style.opacity = (golden * 0.72).toFixed(3);
-    this.goldenVeil.style.setProperty('--golden-x', `${((sunX / W) * 100).toFixed(2)}%`);
-    this.goldenVeil.style.setProperty('--golden-y', `${((sunY / H) * 100).toFixed(2)}%`);
+    this.paint.night = night * 0.78;
+    this._baseGolden = golden * 0.72;
+    this._baseGlow = 0.05 + 0.5 * day + 0.12 * golden;
+    this.paint.golden = this._baseGolden;
+    this.paint.goldenX = sunX / W;
+    this.paint.goldenY = sunY / H;
 
-    this.starsEl.style.opacity = (0.92 * Math.pow(night, 1.25)).toFixed(3);
+    this.paint.stars = 0.92 * Math.pow(night, 1.25);
 
-    if (this.skyGlow) {
-      const activeX = sunAlt >= 0 ? sunX : moonX;
-      const activeY = sunAlt >= 0 ? sunY : moonY;
-      this.skyGlow.style.setProperty('--glow-x', `${((activeX / W) * 100).toFixed(2)}%`);
-      this.skyGlow.style.setProperty('--glow-y', `${((activeY / H) * 100).toFixed(2)}%`);
-      this.skyGlow.style.opacity = (0.05 + 0.5 * day + 0.12 * golden).toFixed(3);
-    }
+    const glowX = sunAlt >= 0 ? sunX : moonX;
+    const glowY = sunAlt >= 0 ? sunY : moonY;
+    this.paint.glow.x = glowX / W;
+    this.paint.glow.y = glowY / H;
+    this.paint.glow.opacity = this._baseGlow;
 
     // Clouds pick up the same air: warm lit tops at golden hour, pale by
     // day, and a cool blue-grey shadow side once the sun is down.
@@ -7684,26 +11851,16 @@ class Sky {
       [34, 45, 64],
       night * 0.70
     );
-    const cloudWarm = `rgba(255, 176, 118, ${(0.42 * golden).toFixed(3)})`;
-    for (const el of [this.atmosphere, this.foreSky]) {
-      if (!el) continue;
-      el.style.setProperty('--cloud-hi', rgbCss(cloudHi));
-      el.style.setProperty('--cloud-lo', rgbCss(cloudLo));
-      el.style.setProperty('--cloud-warm', cloudWarm);
-    }
+    this.paint.clouds.hi = rgbCss(cloudHi);
+    this.paint.clouds.lo = rgbCss(cloudLo);
+    this.paint.clouds.warm = `rgba(255, 176, 118, ${(0.42 * golden).toFixed(3)})`;
 
     const ink = mixRgb(INK_DAY, INK_NIGHT, night);
-    this.rootEl.style.setProperty('--ink', rgbCss(ink));
-    this.rootEl.style.setProperty('--ink-soft', rgbCss(ink, 0.62));
-    this.rootEl.style.setProperty('--ink-faint', rgbCss(ink, 0.34));
-    this.rootEl.style.setProperty('--ink-line', rgbCss(ink, 0.20));
-
-    if (this.themeMeta) {
-      this.themeMeta.setAttribute(
-        'content',
-        rgbCss(mixRgb([224, 224, 198], [10, 18, 31], night))
-      );
-    }
+    this.paint.ink.ink = rgbCss(ink);
+    this.paint.ink.soft = rgbCss(ink, 0.62);
+    this.paint.ink.faint = rgbCss(ink, 0.34);
+    this.paint.ink.line = rgbCss(ink, 0.20);
+    this.paint.theme = rgbCss(mixRgb([224, 224, 198], [10, 18, 31], night));
 
     const phase = this.time > 0.995 ? 0 : this.time;
     const label =
@@ -7715,10 +11872,8 @@ class Sky {
       phase < 0.72 ? '入夜' : '深夜';
 
     const pct = Math.round(this.time * 100);
-    for (const body of [this.sunBody, this.moonBody]) {
-      body.setAttribute('aria-valuenow', String(pct));
-      body.setAttribute('aria-valuetext', `时间 ${pct}%，${label}`);
-    }
+    this.paint.time.pct = pct;
+    this.paint.time.label = label;
 
     /* --- lights --------------------------------------------------- */
     // One continuous model driven by the body's altitude, instead of three
@@ -7775,17 +11930,21 @@ class Sky {
     this.fill.intensity = 0.06 + 0.32 * dayT;
     this.rim.intensity = 0.10 + 0.36 * dayT + 0.24 * horizonGlow;
 
-    // Direction follows the body's altitude and screen azimuth. At noon it
-    // comes from high above, at dusk it rakes in from the horizon side.
-    const hTan = Math.tan((33 * Math.PI) / 360) * (W / H);
-    const az = Math.atan(((activeX / W) * 2 - 1) * hTan);
-    const elev = Math.min(Math.asin(Math.min(1, activeAlt)), 1.2);
-    const ce = Math.cos(elev);
-    const dx = Math.sin(az) * ce;
-    const dy = Math.max(0.06, Math.sin(elev));
-    const dz = -Math.cos(az) * ce;
-    const dLen = Math.hypot(dx, dy, dz);
-    scratch.sunDir.set(dx / dLen, dy / dLen, dz / dLen);
+    // In 3D mode the light follows the real celestial direction. The old
+    // screen-arc approximation is kept for the non-3D pages.
+    if (this.celestial3D) {
+      scratch.sunDir.copy(useSun ? this.sunDir : this.moonDir);
+    } else {
+      const hTan = Math.tan((33 * Math.PI) / 360) * (W / H);
+      const az = Math.atan(((activeX / W) * 2 - 1) * hTan);
+      const elev = Math.min(Math.asin(Math.min(1, activeAlt)), 1.2);
+      const ce = Math.cos(elev);
+      const dx = Math.sin(az) * ce;
+      const dy = Math.max(0.06, Math.sin(elev));
+      const dz = -Math.cos(az) * ce;
+      const dLen = Math.hypot(dx, dy, dz);
+      scratch.sunDir.set(dx / dLen, dy / dLen, dz / dLen);
+    }
     this.keyLight.position.set(
       scratch.sunDir.x * 24,
       scratch.sunDir.y * 24,
@@ -7796,6 +11955,7 @@ class Sky {
     const sunStrength = useSun
       ? 0.12 + 0.92 * Math.pow(Math.max(0, sunAlt), 0.62) + 0.28 * horizonGlow
       : 0.12 + 0.42 * Math.max(0, moonAlt);
+    this._lightBody = useSun ? 'sun' : 'moon';
     this.lightState = {
       x: activeX / W,
       y: 1 - activeY / H,
@@ -7808,21 +11968,22 @@ class Sky {
       golden: horizonGlow,
       night
     };
+    if (this.celestial3D) {
+      const lp = useSun ? this.sunProj : this.moonProj;
+      this.lightState.x = lp.visible ? lp.x / W : -2;
+      this.lightState.y = lp.visible ? 1 - lp.y / H : -2;
+    }
 
     /* --- crepuscular rays ----------------------------------------- */
     // Keep the sun disc untouched; the shafts live on their own layer behind
     // it, so the foreground CSS cloud can pass between them.
-    if (this.raysEl) {
-      const strength = Math.max(0, sunA) * (0.22 + 0.78 * golden);
-      this.raysEl.style.opacity = (strength * 0.62).toFixed(3);
-      this.raysEl.style.setProperty('--ray-x', `${((sunX / W) * 100).toFixed(2)}%`);
-      this.raysEl.style.setProperty('--ray-y', `${((sunY / H) * 100).toFixed(2)}%`);
-      const rayRgb = mixRgb([255, 236, 205], [255, 190, 128], golden);
-      this.raysEl.style.setProperty(
-        '--ray-rgb',
-        `${rayRgb[0]}, ${rayRgb[1]}, ${rayRgb[2]}`
-      );
-    }
+    const strength = Math.max(0, sunA) * (0.22 + 0.78 * golden);
+    this._baseRays = strength * 0.62;
+    this.paint.rays.opacity = this._baseRays;
+    this.paint.rays.x = sunX / W;
+    this.paint.rays.y = sunY / H;
+    const rayRgb = mixRgb([255, 236, 205], [255, 190, 128], golden);
+    this.paint.rays.rgb = `${rayRgb[0]}, ${rayRgb[1]}, ${rayRgb[2]}`;
 
     /* --- fluff, seeds, shadows, pollen ----------------------------- */
     mixLight(PALETTE.fluffNight, PALETTE.fluffGolden, PALETTE.fluffDay, { golden, day }, scratch.fluff);
@@ -7845,26 +12006,25 @@ class Sky {
       golden,
       day
     });
+
+    this._paintFlags();
+    if (this.celestial3D) this._applyScreenPositions();
+    else this.emit();
   }
 
-  _placeBody(body, x, y, alpha) {
+  _placeBody(type, x, y, alpha) {
+    const body = this.paint.bodies[type];
     if (!body) return;
-    body.style.left = `${x.toFixed(2)}px`;
-    body.style.top = `${y.toFixed(2)}px`;
+    body.x = x;
+    body.y = y;
 
     const below = alpha < 0.015;
     // While a body is being scrubbed it must keep receiving the captured
     // pointer even after it passes under the horizon.
-    const keep = this.pressBody === body && this.pressing;
-    body.classList.toggle('is-below', below);
-
-    if (below && !keep) {
-      body.classList.add('is-hidden');
-      body.style.pointerEvents = 'none';
-    } else {
-      body.classList.remove('is-hidden');
-      body.style.pointerEvents = 'auto';
-    }
+    const keep = this.pressBody === type && this.pressing;
+    body.below = below;
+    body.hidden = below && !keep;
+    body.pointerEvents = !body.hidden && this.interactive;
   }
 }
 
@@ -7874,7 +12034,7 @@ function mixLight(night, goldenColor, dayColor, f, out) {
 return { Sky };
 } };
 
-defs["js/post.js"] = { deps: ["three"], factory: function (d) {
+defs["src/engine/post.js"] = { deps: ["three"], factory: function (d) {
       const THREE = d["three"].THREE;
 
 /* ------------------------------------------------------------------ */
@@ -8057,6 +12217,7 @@ function createPostPipeline({ renderer, scene, camera, enabled = true }) {
       sunUV: new THREE.Vector2(0.5, 0.75),
       sunColor: new THREE.Color('#ffddb0'),
       sunDirView: new THREE.Vector3(0, 1, 0),
+      sunDirWorld: new THREE.Vector3(0, 1, 0),
       bloomMul: 1,
       exposureMul: 1,
       scatterMul: 1
@@ -8160,21 +12321,27 @@ function createPostPipeline({ renderer, scene, camera, enabled = true }) {
       ts.exposureMul = 1 + 0.05 * (lightState.golden || 0) - 0.06 * (lightState.night || 0);
       ts.scatterMul = 0.45 + 0.75 * (lightState.golden || 0) + 0.18 * (lightState.day || 0);
     }
-    if (sunDirWorld) {
-      ts.sunDirView.copy(sunDirWorld).transformDirection(camera.matrixWorldInverse).normalize();
-    }
+    if (sunDirWorld) ts.sunDirWorld.copy(sunDirWorld);
   }
 
-  function render() {
+  function render(cameraOverride) {
+    const cam = cameraOverride || camera;
+    cam.updateMatrixWorld();
+    compositeMat.uniforms.uTanHalf.value = Math.tan((cam.fov * Math.PI) / 360);
+    state.timeState.sunDirView
+      .copy(state.timeState.sunDirWorld)
+      .transformDirection(cam.matrixWorldInverse)
+      .normalize();
+
     if (!state.enabled) {
       renderer.setRenderTarget(null);
-      renderer.render(scene, camera);
+      renderer.render(scene, cam);
       return;
     }
     if (!ready) resize();
     if (!sceneRT) {
       renderer.setRenderTarget(null);
-      renderer.render(scene, camera);
+      renderer.render(scene, cam);
       return;
     }
 
@@ -8190,7 +12357,7 @@ function createPostPipeline({ renderer, scene, camera, enabled = true }) {
 
     // 1. scene -> linear HDR target
     renderer.setRenderTarget(sceneRT);
-    renderer.render(scene, camera);
+    renderer.render(scene, cam);
 
     // 2. bright pass at half resolution
     brightMat.uniforms.tSrc.value = sceneRT.texture;
@@ -8242,7 +12409,7 @@ function createPostPipeline({ renderer, scene, camera, enabled = true }) {
 return { createPostPipeline };
 } };
 
-defs["js/dev-console.js"] = { deps: [], factory: function (d) {
+defs["src/engine/dev-console.js"] = { deps: [], factory: function (d) {
 
 /* ------------------------------------------------------------------ */
 /*  Dev console                                                        */
@@ -8392,7 +12559,7 @@ function createDevConsole({ wind, dandelion, sky, world, fireflies, post, birds,
       `云 ${world.clouds ? world.clouds.entries.length : 0} 片 · ` +
       `萤火虫 ${fireflies.points.geometry.attributes.position.count}`
     : `远景 ${world.hills ? world.hills.length : 3} 层山脊 · ` +
-      `云 ${world.clouds ? world.clouds.entries.length : 0} 片 · 鸟群 ${birds ? 7 : 0} 只`;
+      `云 ${world.clouds ? world.clouds.entries.length : 0} 片 · 鸟群 ${birds && birds.mesh ? birds.mesh.count : 0} 只`;
 
   if (distant) {
     const title = panel.querySelector('.dev-head h2');
@@ -8585,12 +12752,12 @@ function createDevConsole({ wind, dandelion, sky, world, fireflies, post, birds,
 return { createDevConsole };
 } };
 
-defs["js/distant.js"] = { deps: ["three", "js/world.js", "js/sky.js", "js/post.js", "js/dev-console.js"], factory: function (d) {
+defs["src/engine/distant.js"] = { deps: ["three", "src/engine/world.js", "src/engine/sky.js", "src/engine/post.js", "src/engine/dev-console.js"], factory: function (d) {
       const THREE = d["three"].THREE;
-      const { createDistantWorld } = d["js/world.js"];
-      const { Sky } = d["js/sky.js"];
-      const { createPostPipeline } = d["js/post.js"];
-      const { createDevConsole } = d["js/dev-console.js"];
+      const { createDistantWorld } = d["src/engine/world.js"];
+      const { Sky } = d["src/engine/sky.js"];
+      const { createPostPipeline } = d["src/engine/post.js"];
+      const { createDevConsole } = d["src/engine/dev-console.js"];
 
 
 
@@ -8778,16 +12945,14 @@ window.__dandy = { scene, camera, renderer, world, sky, post, devConsole, mode: 
 return {};
 } };
 
-defs["js/main.js"] = { deps: ["three", "js/wind.js", "js/world.js", "js/dandelion.js", "js/dandelion-field.js", "js/orbit.js", "js/sky.js", "js/post.js", "js/dev-console.js"], factory: function (d) {
+defs["src/engine/valley-preview.js"] = { deps: ["three", "src/engine/wind.js", "src/engine/world.js", "src/engine/dandelion-field.js", "src/engine/orbit.js", "src/engine/sky.js", "src/engine/post.js"], factory: function (d) {
       const THREE = d["three"].THREE;
-      const { WindField } = d["js/wind.js"];
-      const { createWorld } = d["js/world.js"];
-      const { DANDELION_PARAMS } = d["js/dandelion.js"];
-      const { DandelionField } = d["js/dandelion-field.js"];
-      const { OrbitRig } = d["js/orbit.js"];
-      const { Sky } = d["js/sky.js"];
-      const { createPostPipeline } = d["js/post.js"];
-      const { createDevConsole } = d["js/dev-console.js"];
+      const { WindField } = d["src/engine/wind.js"];
+      const { createValleyWorld } = d["src/engine/world.js"];
+      const { DandelionField } = d["src/engine/dandelion-field.js"];
+      const { OrbitRig } = d["src/engine/orbit.js"];
+      const { Sky } = d["src/engine/sky.js"];
+      const { createPostPipeline } = d["src/engine/post.js"];
 
 
 
@@ -8795,23 +12960,24 @@ defs["js/main.js"] = { deps: ["three", "js/wind.js", "js/world.js", "js/dandelio
 
 
 
-
+/* ------------------------------------------------------------------ */
+/*  Valley study page                                                  */
+/*  The whole bowl is real geometry now: meadow floor, foothills and   */
+/*  an encircling mountain range in one continuous heightfield.        */
+/* ------------------------------------------------------------------ */
 
 const params = new URLSearchParams(window.location.search);
 const isDebug = params.has('debug');
-const isAuto = params.has('auto');
-// Production boot is deliberately console-free: no DEV button, no saved
-// localStorage values. `index.html?dev=1` (or dev.html) is the developer boot.
-const isDev = params.has('dev');
 if (params.has('clean')) document.body.classList.add('clean');
 
-const canvas = document.getElementById('stage');
-const hint = document.getElementById('hint');
-const debugEl = document.getElementById('debug');
 const timeParam = parseFloat(params.get('time') ?? '');
 const initialTime = Number.isFinite(timeParam)
   ? Math.max(0, Math.min(1, timeParam))
   : 0.4;
+
+const canvas = document.getElementById('stage');
+const hint = document.getElementById('hint');
+const debugEl = document.getElementById('debug');
 
 let renderer;
 try {
@@ -8835,39 +13001,13 @@ renderer.setClearColor(0x000000, 0);
 
 const scene = new THREE.Scene();
 
-const camera = new THREE.PerspectiveCamera(33, window.innerWidth / window.innerHeight, 0.08, 460);
-const basePosition = new THREE.Vector3();
-const lookAt = new THREE.Vector3();
+const camera = new THREE.PerspectiveCamera(
+  40,
+  window.innerWidth / window.innerHeight,
+  0.1,
+  1400
+);
 
-function frameCamera() {
-  const aspect = window.innerWidth / window.innerHeight;
-  const phoneLandscape = coarse && window.innerHeight <= 560 && aspect >= 1.2;
-
-  if (aspect < 0.8) {
-    // Portrait phone: pull back so the head keeps its width.
-    camera.fov = 33;
-    basePosition.set(0, 2.28, 11.7);
-    lookAt.set(0, 2.56, 0);
-  } else if (phoneLandscape) {
-    // Landscape phone: a little wider and lower, so the short screen still
-    // shows the head, the grass foreground and the ridge line without the
-    // masthead/hint crowding the subject.
-    camera.fov = 35;
-    basePosition.set(0, 2.02, 9.9);
-    lookAt.set(0, 2.38, 0);
-  } else {
-    camera.fov = 33;
-    basePosition.set(0, 2.12, 9.4);
-    lookAt.set(0, 2.53, 0);
-  }
-  camera.position.copy(basePosition);
-  camera.lookAt(lookAt);
-  camera.updateProjectionMatrix();
-}
-frameCamera();
-
-// A small three-light setup: warm key from the sun, cool sky fill, and a
-// soft rim from behind so the stem has some shape instead of flat green.
 const hemi = new THREE.HemisphereLight(0xfff6e5, 0x5a6742, 1.0);
 const keyLight = new THREE.DirectionalLight(0xffddb0, 1.9);
 keyLight.position.set(5.5, 8.5, 4.5);
@@ -8878,15 +13018,25 @@ rim.position.set(-2.5, 4.5, -6.0);
 scene.add(hemi, keyLight, fill, rim);
 
 const wind = new WindField(camera);
-const world = createWorld(scene, { camera });
+const quality = params.get('quality') || 'auto';
+const world = createValleyWorld(scene, { camera, quality });
 const field = new DandelionField({ scene, camera, renderer, wind });
+
 const orbit = new OrbitRig(camera, canvas, {
-  target: new THREE.Vector3(0, 2.0, 0.02),
-  minRadius: 2.5,
-  maxRadius: 32,
-  minPitch: 0,
-  maxPitch: Math.PI / 2 - 0.02
+  target: new THREE.Vector3(0, 4.2, -4),
+  minRadius: 4,
+  maxRadius: 180,
+  minPitch: 0.01,
+  maxPitch: Math.PI / 2 - 0.02,
+  freeLook: true,
+  lookPitchMin: -1.35,
+  lookPitchMax: 1.35,
+  groundAt: world.heightAt,
+  clearance: 1.8
 });
+orbit.radius = coarse ? 54 : 48;
+orbit.pitch = 0.04;
+orbit.yaw = 0.8;
 orbit.onDragStart = () => wind.setEnabled(false);
 orbit.onDragEnd = () => wind.setEnabled(true);
 
@@ -8897,12 +13047,10 @@ const sky = new Sky({
   hemi,
   fill,
   rim,
-  initial: initialTime
+  initial: initialTime,
+  camera,
+  celestial3D: true
 });
-
-/* ------------------------------------------------------------------ */
-/* post light pipeline                                                 */
-/* ------------------------------------------------------------------ */
 
 const post = createPostPipeline({
   renderer,
@@ -8919,17 +13067,17 @@ function renderScene() {
 }
 
 /* ------------------------------------------------------------------ */
-/* fireflies: a separate transparent layer above the night veil        */
+/* fireflies overlay                                                   */
 /* ------------------------------------------------------------------ */
 
 const fireflyCanvas = document.getElementById('fireflies');
 let fireflyRenderer = null;
 const fireflyScene = new THREE.Scene();
 const fireflyCamera = new THREE.PerspectiveCamera(
-  33,
+  40,
   window.innerWidth / window.innerHeight,
-  0.08,
-  240
+  0.1,
+  1400
 );
 
 if (fireflyCanvas) {
@@ -8958,52 +13106,30 @@ function renderFireflies() {
   fireflyRenderer.render(fireflyScene, fireflyCamera);
 }
 
-let devConsole = null;
-if (isDev) {
-  devConsole = createDevConsole({
-    wind,
-    dandelion: { params: DANDELION_PARAMS },
-    sky,
-    world,
-    fireflies: world.fireflies,
-    birds: world.birds,
-    post
-  });
-}
-
 /* ------------------------------------------------------------------ */
-/* controls are always-on; only hints live here                       */
+/* framing                                                             */
 /* ------------------------------------------------------------------ */
 
-const hintMouse = document.querySelector('.hint__text--mouse');
-const hintTouch = document.querySelector('.hint__text--touch');
-if (hintMouse) hintMouse.textContent = '滑过草地 · 起风　·　拖动 · 视角　·　点击 · 种植';
-if (hintTouch) hintTouch.textContent = '单指滑过 · 起风　·　双指 · 视角　·　轻点 · 种植';
+function frameCamera() {
+  const aspect = window.innerWidth / window.innerHeight;
+  const portrait = aspect < 0.8;
+  camera.fov = portrait ? 58 : 54;
+  camera.aspect = aspect;
+  camera.updateProjectionMatrix();
 
-/* ------------------------------------------------------------------ */
-/* ui                                                                  */
-/* ------------------------------------------------------------------ */
-
-const rootStyle = document.documentElement.style;
-let lastShownWind = -1;
-let interacted = false;
-
-function updateUI() {
-  const shown = Math.min(1, 0.04 + Math.max(wind.strength, wind.energy) * 0.96);
-  if (Math.abs(shown - lastShownWind) > 0.012) {
-    rootStyle.setProperty('--wind', shown.toFixed(3));
-    lastShownWind = shown;
+  if (!orbit.hasView) {
+    orbit.radius = portrait ? (coarse ? 66 : 62) : (coarse ? 54 : 48);
+    orbit.pitch = portrait ? 0.06 : 0.04;
+    orbit.fov = camera.fov;
   }
-
-  if (!interacted && (wind.strength > 0.12 || field.count > 0 || orbit.hasView)) {
-    interacted = true;
-    document.body.classList.add('interacted');
-    hint.setAttribute('aria-hidden', 'true');
-  }
+  orbit.apply();
+  camera.updateMatrixWorld();
 }
+frameCamera();
+sky.sync(camera);
 
 /* ------------------------------------------------------------------ */
-/* planting (tap)                                                      */
+/* planting                                                            */
 /* ------------------------------------------------------------------ */
 
 const planterRay = new THREE.Raycaster();
@@ -9017,7 +13143,9 @@ canvas.addEventListener('pointerdown', (e) => {
   taps.set(e.pointerId, {
     x: e.clientX,
     y: e.clientY,
-    time: performance.now(),
+    // Event timestamps, not handler time: a heavy frame can delay the
+    // pointerup handler by several hundred milliseconds even for a short tap.
+    time: e.timeStamp,
     moved: false
   });
 });
@@ -9036,7 +13164,7 @@ function finishTap(e) {
   if (taps.size === 0) tapMulti = false;
 
   if (multi || tap.moved) return;
-  if (performance.now() - tap.time > 380) return;
+  if (e.timeStamp - tap.time > 650) return;
   if (e.pointerType === 'mouse' && e.button !== 0) return;
 
   planterNdc.set(
@@ -9048,7 +13176,9 @@ function finishTap(e) {
   if (!hits.length) return;
 
   const point = hits[0].point;
-  if (Math.abs(point.x) > 20 || point.z < -30 || point.z > 12) return;
+  const r = Math.hypot(point.x, point.z);
+  if (r > 78 || point.y > 20) return;
+  if (world.slopeAt(point.x, point.z) > 0.42) return;
   field.spawnAt(point);
 }
 
@@ -9059,62 +13189,34 @@ canvas.addEventListener('pointercancel', (e) => {
 });
 
 /* ------------------------------------------------------------------ */
-/* camera drift                                                        */
-/* ------------------------------------------------------------------ */
-/* camera drift                                                        */
+/* ui                                                                  */
 /* ------------------------------------------------------------------ */
 
-function updateCamera(t) {
-  if (orbit.hasView) {
-    orbit.apply();
-    return;
+const rootStyle = document.documentElement.style;
+let lastShownWind = -1;
+let interacted = false;
+
+function updateUI() {
+  const shown = Math.min(1, 0.04 + Math.max(wind.strength, wind.energy, wind.breezePower * 0.55) * 0.96);
+  if (Math.abs(shown - lastShownWind) > 0.012) {
+    rootStyle.setProperty('--wind', shown.toFixed(3));
+    lastShownWind = shown;
   }
 
-  // The ground should feel planted. No pointer-driven camera parallax:
-  // only an almost imperceptible breathing drift over tens of seconds.
-  const driftX = Math.sin(t * 0.075) * 0.012;
-  const driftY = Math.sin(t * 0.11 + 0.7) * 0.008;
-  const driftZ = Math.sin(t * 0.06 + 0.3) * 0.012;
-
-  camera.position.set(
-    basePosition.x + driftX,
-    basePosition.y + driftY,
-    basePosition.z + driftZ
-  );
-  camera.lookAt(lookAt.x, lookAt.y, lookAt.z);
-  camera.updateMatrixWorld();
-}
-
-/* ------------------------------------------------------------------ */
-/* optional auto-demo (?auto)                                          */
-/* ------------------------------------------------------------------ */
-
-let autoClock = 0;
-const autoHead = new THREE.Vector2();
-const AUTO_ANCHOR = new THREE.Vector3(0, 2.56, 0.02);
-
-// The auto demo drags an invisible 'hand' across the dandelion, then back.
-function driveAuto(dt) {
-  autoClock += dt;
-  const cycle = autoClock % 10.0;
-  const W = window.innerWidth;
-  wind.projectToScreen(AUTO_ANCHOR, autoHead);
-
-  if (cycle > 2.2 && cycle < 2.9) {
-    const k = (cycle - 2.2) / 0.7;
-    const x = W * (0.16 + 0.68 * k);
-    wind.force((W * 0.68) / 0.7, 0, x, autoHead.y);
-  } else if (cycle > 6.2 && cycle < 6.9) {
-    const k = (cycle - 6.2) / 0.7;
-    const x = W * (0.84 - 0.68 * k);
-    wind.force(-(W * 0.68) / 0.7, 0, x, autoHead.y);
-  } else {
-    wind.force(0, 0);
+  if (!interacted && (wind.strength > 0.12 || field.count > 0 || orbit.hasView)) {
+    interacted = true;
+    document.body.classList.add('interacted');
+    if (hint) hint.setAttribute('aria-hidden', 'true');
   }
 }
 
+const hintMouse = document.querySelector('.hint__text--mouse');
+const hintTouch = document.querySelector('.hint__text--touch');
+if (hintMouse) hintMouse.textContent = '拖动 · 环视/仰视　·　滚轮 · 缩放　·　点击 · 种植';
+if (hintTouch) hintTouch.textContent = '单指滑过 · 起风　·　双指 · 环视/仰视缩放　·　轻点 · 种植';
+
 /* ------------------------------------------------------------------ */
-/* main loop                                                           */
+/* loop                                                                */
 /* ------------------------------------------------------------------ */
 
 const clock = new THREE.Clock();
@@ -9123,47 +13225,27 @@ let ready = false;
 let debugTimer = 0;
 let fps = 60;
 
-const stillSeconds = parseFloat(params.get('still') || '0');
-const gustAt = parseFloat(params.get('gust') || '-1');
-const gustX = params.has('gustx') ? parseFloat(params.get('gustx')) : null;
-const gustY = params.has('gusty') ? parseFloat(params.get('gusty')) : null;
-const headScreen = new THREE.Vector2();
-
 function updateDebug() {
+  if (!debugEl) return;
   const stats = field.stats();
+  const meadows = world.meadows || [world.meadow];
+  const carpets = world.carpets || [world.carpet];
+  const clumps = meadows.reduce((n, m) => n + m.grassCount, 0);
+  const flowers = meadows.reduce((n, m) => n + m.flowerCount, 0);
+  const blades = carpets.reduce((n, c) => n + c.count, 0);
+  const lod = world.lod || { near: true, mid: true };
   debugEl.hidden = false;
   debugEl.textContent =
     `fps ${fps.toFixed(0)}\n` +
-    `plants ${String(stats.plants).padStart(2)}  head ${String(stats.head).padStart(4)}  flying ${String(stats.flying).padStart(3)}\n` +
-    `wind ${wind.strength.toFixed(2)}  energy ${wind.energy.toFixed(2)}\n` +
-    `time ${sky.time.toFixed(2)}  v_avg ${stats.avgSpeed.toFixed(2)}`;
+    `plants ${String(stats.plants).padStart(2)}  flying ${String(stats.flying).padStart(3)}\n` +
+    `grass ${clumps} clumps + ${blades} blades · flowers ${flowers}\n` +
+    `lod near ${lod.near ? 'on' : 'off'}  mid ${lod.mid ? 'on' : 'off'}\n` +
+    `wind ${wind.strength.toFixed(2)}  time ${sky.time.toFixed(2)}\n` +
+    `calls ${renderer.info.render.calls}  tris ${renderer.info.render.triangles}`;
 }
 
 function stepScene(dt) {
   elapsed += dt;
-  updateCamera(elapsed);
-
-  if (isAuto) {
-    driveAuto(dt);
-  } else if (gustAt >= 0) {
-    const active = elapsed >= gustAt && elapsed < gustAt + 0.55;
-
-    if (active) {
-      const W = window.innerWidth;
-      const H = window.innerHeight;
-      wind.projectToScreen(AUTO_ANCHOR, headScreen);
-
-      const baseX = gustX === null ? headScreen.x : W * gustX;
-      const baseY = gustY === null ? headScreen.y : H * gustY;
-      const k = THREE.MathUtils.clamp((elapsed - gustAt) / 0.55, 0, 1);
-      const x = baseX + (k - 0.5) * 150;
-
-      wind.force(W * 0.98, -H * 0.02, x, baseY);
-    } else {
-      wind.force(0, 0);
-    }
-  }
-
   wind.update(dt, elapsed);
   world.update(elapsed, dt, wind);
   field.update(elapsed, dt);
@@ -9177,10 +13259,9 @@ function animate() {
   if (!dt) return;
   fps += ((1 / dt) - fps) * 0.05;
 
-  // The day cycle follows wall-clock time even when a heavy frame is clamped
-  // for the physics step.
   sky.update(rawDt);
   stepScene(dt);
+  sky.sync(camera);
   updateUI();
   renderScene();
   renderFireflies();
@@ -9192,19 +13273,20 @@ function animate() {
 
   if (isDebug) {
     debugTimer += dt;
-    if (debugTimer > 0.2) {
+    if (debugTimer > 0.25) {
       debugTimer = 0;
       updateDebug();
     }
   }
 }
 
+const stillSeconds = parseFloat(params.get('still') || '0');
 if (stillSeconds > 0) {
-  // Headless still-frame mode: simulate a few seconds, then paint one frame.
   document.body.classList.add('still');
   const dt = 1 / 60;
   const steps = Math.round(stillSeconds * 60);
   for (let i = 0; i < steps; i++) stepScene(dt);
+  sky.sync(camera);
   updateUI();
   document.body.classList.add('ready');
   renderScene();
@@ -9224,20 +13306,483 @@ window.addEventListener('resize', () => {
     fireflyRenderer.setSize(width, height);
   }
   camera.aspect = width / height;
-  camera.updateProjectionMatrix();
+  fireflyCamera.aspect = width / height;
+  fireflyCamera.updateProjectionMatrix();
   frameCamera();
-  if (orbit.hasView) orbit.apply();
   sky.resize();
+  sky.sync(camera);
   post.resize();
 });
 
-// A tiny console handle for tinkering.
-window.__dandy = {
-  scene, camera, renderer, wind, world, field, orbit,
-  sky, post, fireflyRenderer, fireflyScene, devConsole, dandelionParams: DANDELION_PARAMS
+window.__valley = {
+  scene,
+  camera,
+  renderer,
+  wind,
+  world,
+  field,
+  orbit,
+  sky,
+  post,
+  fireflyRenderer,
+  fireflyScene
 };
 return {};
 } };
 
-  req("js/landmarks-preview.js");
+defs["src/engine/vegetation-preview.js"] = { deps: ["three"], factory: function (d) {
+      const THREE = d["three"].THREE;
+
+import {
+  VEGETATION_ASSETS,
+  ASSET_GROUPS,
+  getVegetationAsset,
+  createVegetationMaterial
+} from './vegetation.js';
+
+const canvas = document.getElementById('stage');
+const viewEl = document.querySelector('.view');
+const assetList = document.getElementById('assetList');
+const allBtn = document.getElementById('allBtn');
+const variantsBtn = document.getElementById('variantsBtn');
+const reseedBtn = document.getElementById('reseedBtn');
+const windInput = document.getElementById('wind');
+const windVal = document.getElementById('windVal');
+const capIndex = document.getElementById('capIndex');
+const capName = document.getElementById('capName');
+const capEn = document.getElementById('capEn');
+const capNote = document.getElementById('capNote');
+const capMeta = document.getElementById('capMeta');
+
+/* ------------------------------------------------------------------ */
+/* renderer & scene                                                    */
+/* ------------------------------------------------------------------ */
+
+const renderer = new THREE.WebGLRenderer({
+  canvas,
+  antialias: true,
+  alpha: true,
+  powerPreference: 'high-performance'
+});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.08;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.setClearColor(0x000000, 0);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(31, 1, 0.02, 80);
+
+const hemi = new THREE.HemisphereLight(0xfff5df, 0x55613e, 1.25);
+scene.add(hemi);
+
+const key = new THREE.DirectionalLight(0xffddb0, 2.35);
+key.position.set(3.4, 6.2, 4.2);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.camera.left = -4.4;
+key.shadow.camera.right = 4.4;
+key.shadow.camera.top = 4.8;
+key.shadow.camera.bottom = -2.6;
+key.shadow.camera.near = 0.5;
+key.shadow.camera.far = 20;
+key.shadow.bias = -0.0004;
+key.shadow.normalBias = 0.02;
+key.shadow.radius = 3;
+scene.add(key);
+
+const fill = new THREE.DirectionalLight(0xd6e4e9, 0.48);
+fill.position.set(-4.2, 3.4, 2.0);
+scene.add(fill);
+
+const rim = new THREE.DirectionalLight(0xffe1b8, 0.75);
+rim.position.set(-1.0, 4.0, -5.0);
+scene.add(rim);
+
+const groundMat = new THREE.MeshStandardMaterial({
+  color: '#c6c4a6',
+  roughness: 0.96,
+  metalness: 0
+});
+const ground = new THREE.Mesh(new THREE.CircleGeometry(3.6, 96), groundMat);
+ground.rotation.x = -Math.PI / 2;
+ground.position.y = -0.012;
+ground.receiveShadow = true;
+scene.add(ground);
+
+const rimGeo = new THREE.RingGeometry(3.55, 3.6, 96);
+const rimMat = new THREE.MeshBasicMaterial({
+  color: '#9da184',
+  transparent: true,
+  opacity: 0.55,
+  side: THREE.DoubleSide,
+  toneMapped: false
+});
+const rimRing = new THREE.Mesh(rimGeo, rimMat);
+rimRing.rotation.x = -Math.PI / 2;
+rimRing.position.y = -0.006;
+scene.add(rimRing);
+
+const plants = new THREE.Group();
+scene.add(plants);
+
+const labels = new THREE.Group();
+scene.add(labels);
+
+const plantMaterial = createVegetationMaterial();
+
+/* ------------------------------------------------------------------ */
+/* camera state                                                        */
+/* ------------------------------------------------------------------ */
+
+const view = {
+  az: 0.36,
+  el: 0.24,
+  radius: 4.6,
+  wantRadius: 4.6,
+  targetY: 0.6,
+  wantTargetY: 0.6
+};
+
+const params = new URLSearchParams(window.location.search);
+let currentId = VEGETATION_ASSETS[0].id;
+const requestedAsset = params.get('asset');
+if (requestedAsset && VEGETATION_ASSETS.some((asset) => asset.id === requestedAsset)) {
+  currentId = requestedAsset;
+}
+let allMode = params.get('all') === '1';
+let showVariants = !allMode && params.get('variants') === '1';
+let seedSalt = 0;
+
+function updateCamera(dt) {
+  const ease = Math.min(1, dt * 7.5);
+  view.radius += (view.wantRadius - view.radius) * ease;
+  view.targetY += (view.wantTargetY - view.targetY) * ease;
+  const cy = view.targetY;
+  const cosEl = Math.cos(view.el);
+  camera.position.set(
+    Math.sin(view.az) * cosEl * view.radius,
+    cy + Math.sin(view.el) * view.radius,
+    Math.cos(view.az) * cosEl * view.radius
+  );
+  camera.lookAt(0, cy, 0);
+}
+
+/* ------------------------------------------------------------------ */
+/* labels                                                              */
+/* ------------------------------------------------------------------ */
+
+function roundedRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function makeLabel(text, accent = '#8fa85c') {
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 128;
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, c.width, c.height);
+
+  roundedRect(ctx, 18, 20, 476, 88, 20);
+  ctx.fillStyle = 'rgba(246, 241, 228, 0.86)';
+  ctx.fill();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(62, 71, 51, 0.12)';
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(50, 64, 5, 0, Math.PI * 2);
+  ctx.fillStyle = accent;
+  ctx.fill();
+
+  ctx.font = '500 30px "Songti SC", "Noto Serif SC", "STSong", serif';
+  ctx.fillStyle = 'rgba(55, 64, 46, 0.86)';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 72, 65);
+
+  const texture = new THREE.CanvasTexture(c);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.needsUpdate = true;
+
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+    toneMapped: false
+  });
+  const sprite = new THREE.Sprite(material);
+  sprite.scale.set(0.9, 0.225, 1);
+  sprite.renderOrder = 50;
+  sprite.userData.texture = texture;
+  return sprite;
+}
+
+/* ------------------------------------------------------------------ */
+/* building the shelf                                                  */
+/* ------------------------------------------------------------------ */
+
+function clearPlants() {
+  for (const child of [...plants.children, ...labels.children]) {
+    if (child.parent) child.parent.remove(child);
+    if (child.geometry) child.geometry.dispose();
+    if (child.material && child.material !== plantMaterial) {
+      if (child.material.map) child.material.map.dispose();
+      child.material.dispose();
+    }
+  }
+}
+
+function addPlant(asset, seed, x, z, labelText, labelScale = 1) {
+  const geometry = asset.build(seed);
+  const mesh = new THREE.Mesh(geometry, plantMaterial);
+  mesh.position.set(x, 0, z);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  plants.add(mesh);
+
+  const label = makeLabel(labelText, asset.accent);
+  label.scale.multiplyScalar(labelScale);
+  label.position.set(x, 0.085, z + 0.38);
+  labels.add(label);
+}
+
+function focusLayout(asset) {
+  const salts = [seedSalt, seedSalt, seedSalt];
+  if (showVariants) {
+    const xs = [-0.8, 0, 0.8];
+    const seeds = [asset.seeds[1] + salts[0], asset.seeds[0] + salts[1], asset.seeds[2] + salts[2]];
+    const names = ['变体 A', '主株', '变体 B'];
+    for (let i = 0; i < 3; i++) {
+      addPlant(asset, seeds[i], xs[i], 0, names[i], 0.84);
+    }
+    view.wantRadius = Math.max(4.1, asset.height[1] * 2.7 + 1.5);
+  } else {
+    addPlant(asset, asset.seeds[0] + seedSalt, 0, 0, '单株', 1);
+    view.wantRadius = Math.max(2.9, asset.height[1] * 2.8 + 1.0);
+  }
+  view.wantTargetY = asset.height[1] * 0.46;
+}
+
+function allLayout() {
+  const xs = [-1.36, 0, 1.36];
+  const zs = [0.94, 0, -0.94];
+  let i = 0;
+  for (const asset of VEGETATION_ASSETS) {
+    const col = i % 3;
+    const row = Math.floor(i / 3);
+    addPlant(asset, asset.seeds[0] + seedSalt, xs[col], zs[row], `${asset.index}  ${asset.label}`, 0.78);
+    i++;
+  }
+  view.wantRadius = 6.25;
+  view.wantTargetY = 0.62;
+}
+
+function updateCaption() {
+  if (allMode) {
+    capIndex.textContent = 'ALL / 09';
+    capName.textContent = '全部资产';
+    capEn.textContent = 'NINE SINGLE PLANTS';
+    capNote.textContent = '5 种草、4 种花，每种 3 个种子变体。所有单株都由同一套程序化几何规则生成，可直接进入下一步的草地装配。';
+    capMeta.textContent = '03 × 03 陈列 · 顶点色 · 可实例化';
+    return;
+  }
+
+  const asset = getVegetationAsset(currentId);
+  capIndex.textContent = `${asset.index} / ${asset.kind.toUpperCase()}`;
+  capName.textContent = asset.label;
+  capEn.textContent = asset.en;
+  capNote.textContent = asset.note;
+  const seedList = asset.seeds.map((s) => s + seedSalt).join(' / ');
+  capMeta.textContent =
+    `高度 ${asset.height[0].toFixed(2)}–${asset.height[1].toFixed(2)} m · ` +
+    `${asset.stat} · 种子 ${seedList}`;
+}
+
+function refreshList() {
+  for (const btn of assetList.querySelectorAll('.asset-item')) {
+    btn.classList.toggle('is-active', !allMode && btn.dataset.id === currentId);
+  }
+  allBtn.classList.toggle('is-active', allMode);
+  variantsBtn.disabled = allMode;
+  variantsBtn.setAttribute('aria-pressed', String(showVariants && !allMode));
+  variantsBtn.textContent = showVariants && !allMode ? '只看主株' : '显示 3 个变体';
+}
+
+function rebuild() {
+  clearPlants();
+  if (allMode) allLayout();
+  else focusLayout(getVegetationAsset(currentId));
+  updateCaption();
+  refreshList();
+}
+
+/* ------------------------------------------------------------------ */
+/* ui                                                                  */
+/* ------------------------------------------------------------------ */
+
+function buildList() {
+  for (const group of ASSET_GROUPS) {
+    const label = document.createElement('p');
+    label.className = 'group-label';
+    label.textContent = group.label;
+    assetList.appendChild(label);
+
+    for (const asset of group.assets) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'asset-item';
+      btn.dataset.id = asset.id;
+      btn.innerHTML =
+        `<span class="asset-item__idx">${asset.index}</span>` +
+        `<span class="asset-item__body">` +
+        `<span class="asset-item__name">${asset.label}</span>` +
+        `<span class="asset-item__en">${asset.en}</span>` +
+        `</span>` +
+        `<span class="asset-item__dot" style="--accent:${asset.accent}"></span>`;
+      btn.addEventListener('click', () => {
+        allMode = false;
+        currentId = asset.id;
+        rebuild();
+      });
+      assetList.appendChild(btn);
+    }
+  }
+}
+
+allBtn.addEventListener('click', () => {
+  if (allMode) {
+    allMode = false;
+  } else {
+    allMode = true;
+    showVariants = false;
+  }
+  rebuild();
+});
+
+variantsBtn.addEventListener('click', () => {
+  if (allMode) return;
+  showVariants = !showVariants;
+  rebuild();
+});
+
+reseedBtn.addEventListener('click', () => {
+  seedSalt += 137;
+  rebuild();
+});
+
+windInput.addEventListener('input', () => {
+  const v = Number(windInput.value);
+  plantMaterial.userData.uniforms.uWind.value = v;
+  windVal.textContent = v.toFixed(2);
+});
+
+/* ------------------------------------------------------------------ */
+/* orbit / zoom                                                        */
+/* ------------------------------------------------------------------ */
+
+let dragging = false;
+let lastX = 0;
+let lastY = 0;
+let pointerId = null;
+
+canvas.addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  dragging = true;
+  pointerId = e.pointerId;
+  lastX = e.clientX;
+  lastY = e.clientY;
+  canvas.classList.add('is-dragging');
+  try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* noop */ }
+});
+
+canvas.addEventListener('pointermove', (e) => {
+  if (!dragging) return;
+  const dx = e.clientX - lastX;
+  const dy = e.clientY - lastY;
+  lastX = e.clientX;
+  lastY = e.clientY;
+  view.az -= dx * 0.0065;
+  view.el = THREE.MathUtils.clamp(view.el + dy * 0.0045, 0.06, 1.05);
+});
+
+function endOrbit(e) {
+  dragging = false;
+  canvas.classList.remove('is-dragging');
+  if (pointerId !== null) {
+    try { canvas.releasePointerCapture(pointerId); } catch (err) { /* noop */ }
+    pointerId = null;
+  }
+  if (e) e.preventDefault();
+}
+canvas.addEventListener('pointerup', endOrbit);
+canvas.addEventListener('pointercancel', endOrbit);
+canvas.addEventListener('lostpointercapture', endOrbit);
+
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  view.wantRadius = THREE.MathUtils.clamp(
+    view.wantRadius * Math.exp(e.deltaY * 0.0011),
+    1.5,
+    14
+  );
+}, { passive: false });
+
+/* ------------------------------------------------------------------ */
+/* size & loop                                                         */
+/* ------------------------------------------------------------------ */
+
+function resize() {
+  const w = viewEl.clientWidth || window.innerWidth;
+  const h = viewEl.clientHeight || window.innerHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / Math.max(h, 1);
+  camera.updateProjectionMatrix();
+}
+
+window.addEventListener('resize', resize);
+
+const clock = new THREE.Clock();
+let time = 0;
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 1 / 20);
+  time += dt;
+
+  plantMaterial.userData.uniforms.uTime.value = time;
+  updateCamera(dt);
+  renderer.render(scene, camera);
+}
+
+buildList();
+plantMaterial.userData.uniforms.uWind.value = Number(windInput.value);
+windVal.textContent = Number(windInput.value).toFixed(2);
+view.wantRadius = 2.9;
+view.radius = 2.9;
+view.wantTargetY = 0.6;
+view.targetY = 0.6;
+rebuild();
+resize();
+animate();
+
+window.__veg = { scene, camera, renderer, plants, labels, plantMaterial, view, rebuild };
+return {};
+} };
+
+  req("src/engine/landmarks-preview.js");
 })();

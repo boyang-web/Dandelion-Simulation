@@ -4,8 +4,8 @@
 
 项目现在只发布 **GitHub Pages 静态站点**，不再生成单文件包。
 
-- 用户入口：`index.html`（无控制台）
-- 开发者入口：`dev.html` → `index.html?dev=1`
+- 用户入口：`index.html`（Demo 目录）
+- 开发者入口：`dev.html` → `game.html?dev=1`
 - 预览页集中在 `labs/`，不占用根目录
 - 根目录有 `.nojekyll`，不需要构建服务
 
@@ -56,7 +56,7 @@ python3 tools/build-classic-bundle.py
 ## 发布前检查
 
 - `index.html` 用户启动不应出现 `DEV` 按钮；
-- `index.html?dev=1` 或 `dev.html` 应出现开发者面板；
+- `game.html?dev=1` 或 `dev.html` 应出现开发者面板；
 - 手机竖屏下确认相机为竖屏机位（`camera.position.z = 11.7`）、草簇 5000、
   云 6 片；
 - 手机横屏（844 × 390 / 667 × 375）下确认 `camera.fov = 35`、`camera.position.z = 9.9`，
