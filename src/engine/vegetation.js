@@ -630,7 +630,7 @@ export const VEGETATION_ASSETS = [
     accent: '#b9c697',
     height: [0.9, 1.3],
     stat: '6–8 blades',
-    note: '细长、微微外倾，适合做前景高草与逆光轮廓。',
+    note: '细叶向外垂。迎着光看，草尖的轮廓最清楚。',
     seeds: [11, 29, 47]
   }, {
     height: [0.9, 1.3],
@@ -652,7 +652,7 @@ export const VEGETATION_ASSETS = [
     accent: '#8fa85c',
     height: [0.55, 0.85],
     stat: '9–12 blades',
-    note: '最接近主场景的基准草簇，密度和高度都居中。',
+    note: '山谷里最常见的草，叶子不高，株间还透得过光。',
     seeds: [17, 41, 71]
   }, {
     height: [0.55, 0.85],
@@ -674,7 +674,7 @@ export const VEGETATION_ASSETS = [
     accent: '#5c7438',
     height: [0.3, 0.5],
     stat: '14–18 blades',
-    note: '低矮而密，用来铺满近地面的缝隙，避免草地出现空洞。',
+    note: '贴地长成密密的一团，正好填在高草之间。',
     seeds: [23, 53, 83]
   }, {
     height: [0.3, 0.5],
@@ -696,7 +696,7 @@ export const VEGETATION_ASSETS = [
     accent: '#c9b579',
     height: [0.75, 1.1],
     stat: '5–7 blades',
-    note: '偏干、偏硬，色调发暖，给整片绿色里一点秋天。',
+    note: '叶子偏黄，梗硬，和旁边的青草很容易分开。',
     seeds: [31, 67, 97]
   }, {
     height: [0.75, 1.1],
@@ -718,7 +718,7 @@ export const VEGETATION_ASSETS = [
     accent: '#78974d',
     height: [0.42, 0.68],
     stat: '4–6 leaves',
-    note: '宽叶片会形成更大面积的明暗，适合做主场景的视觉锚点。',
+    note: '叶面宽，转动时能看清向光面和背光面的差别。',
     seeds: [37, 73, 109]
   }, {
     height: [0.42, 0.68],
@@ -740,7 +740,7 @@ export const VEGETATION_ASSETS = [
     accent: '#efe8d2',
     height: [0.38, 0.52],
     stat: '12–15 petals',
-    note: '白瓣黄心，花头最大；适合作为草地里的留白和高光点。',
+    note: '白瓣围着黄花心。几种野花里，这一种花头最大。',
     seeds: [101, 137, 173]
   }, {
     height: [0.38, 0.52],
@@ -763,7 +763,7 @@ export const VEGETATION_ASSETS = [
     accent: '#efc74f',
     height: [0.3, 0.44],
     stat: '5 cupped petals',
-    note: '五片小杯状花瓣，亮黄、低矮，适合在近景里成片出现。',
+    note: '五片亮黄的花瓣围成一个小杯，刚刚高出草面。',
     seeds: [113, 151, 191]
   }, {
     height: [0.3, 0.44],
@@ -786,7 +786,7 @@ export const VEGETATION_ASSETS = [
     accent: '#8197dd',
     height: [0.26, 0.38],
     stat: '5 blue petals',
-    note: '很小的蓝色花，适合藏在草缝里，作为冷色点缀。',
+    note: '蓝花很小，从草叶的缝里才能看清。',
     seeds: [127, 163, 199]
   }, {
     height: [0.26, 0.38],
@@ -809,7 +809,7 @@ export const VEGETATION_ASSETS = [
     accent: '#9a82c4',
     height: [0.5, 0.66],
     stat: '5 whorls · 6 florets',
-    note: '不是单朵花，而是一支蓝紫色小花穗；给草地增加竖向节奏。',
+    note: '一串蓝紫色小花挤在同一根花茎上，穗尖伸出草丛。',
     seeds: [139, 179, 211]
   }, {
     height: [0.5, 0.66],

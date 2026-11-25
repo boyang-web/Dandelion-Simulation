@@ -8,6 +8,7 @@ avoids top-level name collisions between modules.
 """
 
 from pathlib import Path
+import base64
 import json
 import posixpath
 import re
@@ -15,50 +16,17 @@ import re
 ROOT = Path(__file__).resolve().parent.parent
 THREE = ROOT / 'vendor' / 'three.module.js'
 THREE_GLOBAL = ROOT / 'vendor' / 'three.global.js'
-BUNDLE = ROOT / 'src' / 'engine' / 'bundle.js'
-BUNDLE_DISTANT = ROOT / 'src' / 'engine' / 'bundle-distant.js'
-BUNDLE_LANDMARKS = ROOT / 'src' / 'engine' / 'bundle-landmarks.js'
-BUNDLE_VALLEY = ROOT / 'src' / 'engine' / 'bundle-valley.js'
-
-MODULES = [
-    'src/engine/wind-route.js',
-    'src/engine/valley-levels.js',
-    'src/engine/valley-trials.js',
-    'src/engine/seed-shrine.js',
-    'src/engine/trail-garden.js',
-    'src/engine/wind-habitat.js',
-    'src/engine/vegetation.js',
-    'src/engine/meadow.js',
-    'src/engine/wind.js',
-    'src/engine/world.js',
-    'src/engine/fireflies.js',
-    'src/engine/birds.js',
-    'src/engine/clouds.js',
-    'src/engine/tree-assets.js',
-    'src/engine/windmill-asset.js',
-    'src/engine/landmarks.js',
-    'src/engine/landmarks-preview.js',
-    'src/engine/dandelion.js',
-    'src/engine/dandelion-field.js',
-    'src/engine/orbit.js',
-    'src/engine/player.js',
-    'src/engine/abilities.js',
-    'src/engine/anchors.js',
-    'src/engine/film-camera.js',
-    'src/engine/journey-assets.js',
-    'src/engine/mobile-controls.js',
-    'src/engine/capture.js',
-    'src/engine/audio.js',
-    'src/engine/sky.js',
-    'src/engine/post.js',
-    'src/engine/dev-console.js',
-    'src/engine/distant.js',
-    'src/engine/valley-preview.js',
-    'src/engine/vegetation-preview.js'
-]
+ENTRIES = {
+    'src/main.js': 'game',
+    'prototype/js/main.js': 'prototype',
+    'src/engine/vegetation-preview.js': 'vegetation',
+    'src/engine/landmarks-preview.js': 'landmarks',
+    'src/engine/distant.js': 'distant',
+    'src/engine/valley-preview.js': 'valley',
+}
 
 IMPORT_RE = re.compile(
-    r"^import\s+(.+?)\s+from\s+['\"]([^'\"]+)['\"];?\s*$",
+    r"""^import\s+(\{[^}]*\}|\* as [\w$]+|[\w$]+)\s+from\s+['"]([^'"]+)['"];?[ \t]*$""",
     re.MULTILINE
 )
 EXPORT_DECL_RE = re.compile(
@@ -105,8 +73,8 @@ def transform_module(key):
     for match in list(IMPORT_RE.finditer(code)):
         what = match.group(1).strip()
         spec = match.group(2).strip().split('?')[0]
-        if spec == 'three':
-            dep = 'three'
+        if spec in ('three', 'vue'):
+            dep = spec
         elif spec.startswith('.'):
             dep = posixpath.normpath(
                 posixpath.join(posixpath.dirname(key), spec)
@@ -138,9 +106,19 @@ def transform_module(key):
             if plain:
                 header.append(f'const {{ {", ".join(plain)} }} = d["{dep}"];')
         else:
-            raise SystemExit(f'{key}: unsupported import form {what}')
+            header.append(f'const {what} = d["{dep}"].default;')
 
-    code = IMPORT_RE.sub('', code).replace('import.meta.url', 'bundleUrl')
+    code = IMPORT_RE.sub('', code)
+
+    # Textures loaded from file URLs cannot be uploaded to WebGL on some browsers.
+    def embed_texture(match):
+        asset = path.parent / match.group(1)
+        data = base64.b64encode(asset.read_bytes()).decode('ascii')
+        return f'new URL("data:image/webp;base64,{data}")'
+
+    code = re.sub(r"""new URL\(['"]([^'"]+\.webp)['"],\s*import\.meta\.url\)""", embed_texture, code)
+    has_default = 'export default ' in code
+    code = code.replace('export default ', 'const defaultExport = ')
 
     exported = []
 
@@ -168,6 +146,8 @@ def transform_module(key):
         raise SystemExit(f'{key}: unhandled export remains')
 
     exported = list(dict.fromkeys(exported))
+    if has_default:
+        exported.append('default: defaultExport')
     ret = 'return { ' + ', '.join(exported) + ' };' if exported else 'return {};'
 
     return {
@@ -207,16 +187,21 @@ def main():
         '  defs["three"] = { deps: [], factory: function () { return { THREE: window.THREE }; } };',
     ]
 
-    for key in MODULES:
-        parts.append(transform_module(key)['factory'])
+    parts.append('defs["vue"] = { deps: [], factory: function () { return window.Vue; } };')
+    for entry, name in ENTRIES.items():
+        modules = {}
 
-    entries = [
-        ('src/engine/distant.js', BUNDLE_DISTANT),
-        ('src/engine/landmarks-preview.js', BUNDLE_LANDMARKS),
-        ('src/engine/valley-preview.js', BUNDLE_VALLEY)
-    ]
-    for entry, out_path in entries:
-        body = parts + [f'  req("{entry}");', '})();']
+        def collect(key):
+            if key in modules or key in ('vue', 'three'):
+                return
+            module = transform_module(key)
+            modules[key] = module['factory']
+            for dep in module['deps']:
+                collect(dep)
+
+        collect(entry)
+        out_path = ROOT / 'src' / 'engine' / f'bundle-{name}.js'
+        body = parts + list(modules.values()) + [f'  req("{entry}");', '})();']
         out = '\n'.join(body)
         out_path.write_text(out, encoding='utf-8')
         print(f'wrote {out_path.relative_to(ROOT)} ({len(out) / 1024:.0f} KB)')

@@ -9,13 +9,13 @@ export default defineComponent({
   },
   template: `
     <section class="journey-end" v-if="ui.journeyEnd.visible" aria-label="旅程完成">
-      <p class="journey-end__kicker">{{ ui.journeyEnd.album ? 'FIVE POSTCARDS' : 'TARAXACUM' }}</p>
-      <h2>风经过的地方</h2>
-      <p>{{ ui.journeyEnd.album ? '五张明信片收齐了。' : '日影落回约定的刻痕。你把春种送过了两岸，山谷终于又听见了春天的第一阵风。' }}</p>
+      <p class="journey-end__kicker">{{ ui.journeyEnd.album ? '明信片' : '山脊日晷' }}</p>
+      <h2>{{ ui.journeyEnd.album ? '五张都在这儿了' : '今年的种子送到了' }}</h2>
+      <p>{{ ui.journeyEnd.album ? '打开胶片卷，可以挑一张喜欢的照片下载。' : '石针的影子压住了去年的划痕。泉的两岸都有了蒲公英，孩子分给你的两把种子，都有了着落。' }}</p>
       <div class="journey-end__cards">
         <span v-for="card in ui.journeyEnd.cards" :key="card">{{ card }}</span>
       </div>
-      <button class="journey-end__button" type="button" @click="continueJourney">继续漫游</button>
+      <button class="journey-end__button" type="button" @click="continueJourney">回山谷看看</button>
     </section>
   `
 });

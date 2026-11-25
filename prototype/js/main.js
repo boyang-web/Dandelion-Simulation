@@ -175,10 +175,6 @@ if (isDev) {
 /* controls are always-on; only hints live here                       */
 /* ------------------------------------------------------------------ */
 
-const hintMouse = document.querySelector('.hint__text--mouse');
-const hintTouch = document.querySelector('.hint__text--touch');
-if (hintMouse) hintMouse.textContent = '滑过草地 · 起风　·　拖动 · 视角　·　点击 · 种植';
-if (hintTouch) hintTouch.textContent = '单指滑过 · 起风　·　双指 · 视角　·　轻点 · 种植';
 
 /* ------------------------------------------------------------------ */
 /* ui                                                                  */

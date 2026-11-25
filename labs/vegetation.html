@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#e8e2d0" />
-  <title>单株档案 · 等风来</title>
+  <title>草和野花 · 等风来</title>
   <meta name="description" content="草地单株资产库：5 种草、4 种花，每种 3 个种子变体。程序化几何、顶点色、风场属性。" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23e9e1c6'/%3E%3Cpath d='M16 26c0-8-5-12-9-14M16 26c0-8 5-12 9-14M16 26V9' stroke='%236a8244' stroke-width='1.5' fill='none'/%3E%3C/svg%3E" />
   <link rel="stylesheet" href="../src/styles/vegetation.css" />
@@ -26,14 +26,16 @@
   <script type="importmap">
     { "imports": { "three": "../vendor/three.module.js" } }
   </script>
+<link rel="stylesheet" href="../src/styles/demo-nav.css">
 </head>
 <body>
+  <a class="demo-home" href="../index.html">返回目录</a>
   <div class="shell">
     <aside class="rail">
       <header class="rail__head">
-        <p class="kicker">VEGETATION · ASSET LIBRARY</p>
-        <h1>单株档案</h1>
-        <p class="sub">草与花 · 9 个可复用单株<br />每种 3 个种子变体</p>
+        <p class="kicker">植物图鉴</p>
+        <h1>草和野花</h1>
+        <p class="sub">这里有九种植物。选中一株，可以换三种不同的株形。</p>
       </header>
 
       <button class="all-btn" id="allBtn" type="button">
@@ -44,9 +46,9 @@
       <nav class="asset-list" id="assetList" aria-label="单株资产列表"></nav>
 
       <footer class="rail__foot">
-        <p>每个资产 = 1 个合并 BufferGeometry</p>
-        <p>顶点色 · aBend / aPhase / aFlutter · 可实例化</p>
-        <a href="./landmarks.html">远景档案 →</a> · <a href="../index.html">← Demo 目录</a>
+        <p>每株植物只用一个 BufferGeometry。</p>
+        <p>叶片用顶点着色，同一种草可以在场景里重复种植。</p>
+        <a href="./landmarks.html">树与风车 →</a>
       </footer>
     </aside>
 
@@ -75,10 +77,10 @@
         <p class="caption__meta" id="capMeta"></p>
       </section>
 
-      <p class="hint">拖动旋转 · 滚轮缩放</p>
+      <p class="hint">拖动旋转，滚轮拉近或拉远。</p>
     </main>
   </div>
 
-  <script type="module" src="../src/engine/vegetation-preview.js?v=30"></script>
+  <script src="../src/open-demo.js" data-module="../src/engine/vegetation-preview.js" data-offline="vegetation"></script>
 </body>
 </html>

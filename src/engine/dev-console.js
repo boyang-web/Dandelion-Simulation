@@ -24,7 +24,7 @@ export function createDevConsole({ wind, dandelion, sky, world, fireflies, post,
   // smoothing, thresholds and low-pass internals stay at their defaults.
   const allGroups = [
     {
-      label: '画面 · LOOK',
+      label: '画面',
       rows: [
         row('画面', '曝光', post.grade, 'exposure', 0.6, 1.6, 0.01),
         row('画面', '泛光', post.grade, 'bloom', 0, 1.6, 0.01),
@@ -37,36 +37,36 @@ export function createDevConsole({ wind, dandelion, sky, world, fireflies, post,
       ]
     },
     {
-      label: '远景 · DISTANCE',
+      label: '远景',
       rows: [
         ...(world.clouds
           ? [row('远景', '云层浓度', world.clouds.params, 'opacity', 0, 1.6, 0.01)]
           : []),
         row('远景', '鸟群最小间隔', birds.params, 'gapMin', 8, 120, 1, 's'),
         row('远景', '鸟群最大间隔', birds.params, 'gapMax', 14, 180, 1, 's'),
-        row('远景', '鸟群体型', birds.params, 'scale', 0.4, 2.5, 0.05)
+        row('远景', '鸟的大小', birds.params, 'scale', 0.4, 2.5, 0.05)
       ]
     },
     {
-      label: '草地与风 · MEADOW',
+      label: '草地与风',
       rows: [
         row('草地', '最大风速', wind.params, 'maxAirSpeed', 1, 16, 0.1, '', 'main'),
         row('草地', '草弯曲幅度', wind.params, 'grassBendScale', 0.2, 3, 0.05, '', 'main'),
-        row('草地', '草受力增益', wind.params, 'grassShaderGain', 0.2, 2.5, 0.05, '', 'main'),
-        row('草地', '草风范围', wind.params, 'grassRadiusFactor', 0.25, 1.2, 0.01, '', 'main')
+        row('草地', '草叶对风的敏感度', wind.params, 'grassShaderGain', 0.2, 2.5, 0.05, '', 'main'),
+        row('草地', '风影响的草地范围', wind.params, 'grassRadiusFactor', 0.25, 1.2, 0.01, '', 'main')
       ]
     },
     {
-      label: '蒲公英 · DANDELION',
+      label: '蒲公英',
       rows: [
         row('蒲公英', '种子响应', dandelion.params, 'seedResponseGain', 0.2, 4, 0.05, '', 'main'),
         row('蒲公英', '种子寿命', dandelion.params, 'seedLifeMin', 4, 30, 1, '', 'main')
       ]
     },
     {
-      label: '萤火虫 · FIREFLIES',
+      label: '萤火虫',
       rows: [
-        row('萤火虫', '呼吸最高亮度', fireflies.params, 'breathMax', 0.1, 1.2, 0.01, '', 'main'),
+        row('萤火虫', '发光时的最高亮度', fireflies.params, 'breathMax', 0.1, 1.2, 0.01, '', 'main'),
         row('萤火虫', '光点大小', fireflies.params, 'sizeScale', 0.2, 4, 0.05, '', 'main'),
         row('萤火虫', '风力响应', fireflies.params, 'windScale', 0, 4, 0.05, '', 'main')
       ]
@@ -248,7 +248,7 @@ export function createDevConsole({ wind, dandelion, sky, world, fireflies, post,
   if (birds) {
     const summon = document.createElement('button');
     summon.type = 'button';
-    summon.textContent = '召唤鸟群';
+    summon.textContent = '放飞一群鸟';
     summon.title = '立即放一群鸟从远处飞过';
     summon.addEventListener('click', () => {
       birds.spawn();
@@ -265,7 +265,7 @@ export function createDevConsole({ wind, dandelion, sky, world, fireflies, post,
     flowBtn.addEventListener('click', () => {
       sky.setFlow(!sky.flowEnabled);
       flowBtn.textContent = sky.flowEnabled ? '暂停时间' : '继续时间';
-      setStatus(sky.flowEnabled ? '时间继续流动' : '时间已暂停');
+      setStatus(sky.flowEnabled ? '已继续计时' : '时间已暂停');
     });
     panel.querySelector('.dev-actions').appendChild(flowBtn);
   }

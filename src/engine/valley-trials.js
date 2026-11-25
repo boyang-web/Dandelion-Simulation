@@ -9,7 +9,7 @@ export function createValleyTrials(scene, world, abilities, report) {
   const decks=world.levels.islands;
   const courses=[
     {id:'arcade',name:'石廊穿梭',ability:'multiPlant',x:-70,z:-51,
-      goals:gates.map((g,i)=>({...g, label:'穿过第'+(i+1)+'道门梁'}))},
+      goals:gates.map((g,i)=>({...g, label:'穿过第'+(i+1)+'道石门'}))},
     {id:'cloud',name:'云台接力',ability:'lift',x:decks[0].x-7,z:decks[0].z+2,
       goals:decks.map((d,i)=>({x:d.x,z:d.z,y:d.top,label:'落在第'+(i+1)+'座岩台'}))}
   ];
@@ -30,13 +30,13 @@ export function createValleyTrials(scene, world, abilities, report) {
   let active=null, nearby=null, step=0, start=0;
   const clock=s=>s.toFixed(1)+' 秒';
   function toggle(t){
-    if(active){active=null;report('试炼已结束 · 可以回旗杆重试');return;}
+    if(active){active=null;report('计时已停止。回旗杆旁可以再跑一次。');return;}
     if(nearby){active=nearby;step=0;start=t;report(active.name+' · 出发');}
   }
   function update(t,player,ui){
     const p=player.root.position;
     nearby=courses.find(c=>abilities.has(c.ability) && Math.hypot(p.x-c.x,p.z-c.z)<5) || null;
-    ui.trialAction=active?'退出试炼':nearby?'挑战 · '+nearby.name:'';
+    ui.trialAction=active?'结束计时':nearby?'挑战 · '+nearby.name:'';
     if(!active){
       const best=nearby && abilities.state.settings['best-'+nearby.id];
       ui.trialStatus=best?'个人最快 '+clock(best):'';

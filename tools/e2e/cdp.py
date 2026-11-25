@@ -69,7 +69,6 @@ class Chrome:
             "--disable-gpu",
             "--enable-unsafe-swiftshader",
             "--no-sandbox",
-            "--allow-file-access-from-files",
             "--autoplay-policy=no-user-gesture-required",
             f"--window-size={self.width},{self.height}",
         ]

@@ -26,8 +26,10 @@
     })();
   </script>
   <script type="importmap">{"imports":{"three":"../vendor/three.module.js"}}</script>
+<link rel="stylesheet" href="../src/styles/demo-nav.css">
 </head>
 <body>
+  <a class="demo-home" href="../index.html">返回目录</a>
   <div class="atmosphere" aria-hidden="true">
     <div class="sky-glow"></div>
   </div>
@@ -70,15 +72,15 @@
   </div>
 
   <header class="masthead">
-    <p class="masthead__kicker">Valley study · 场景预览</p>
+    <p class="masthead__kicker">山谷全景</p>
     <h1 class="masthead__title">四方山</h1>
-    <p class="masthead__sub"><a href="../index.html">← Demo 目录</a></p>
+
   </header>
 
   <div class="hint" id="hint" role="status">
     <span class="hint__rule" aria-hidden="true"></span>
-    <span class="hint__text hint__text--mouse">拖动 · 环视山谷　·　滚轮 · 缩放　·　点击 · 种植</span>
-    <span class="hint__text hint__text--touch">单指滑过 · 起风　·　双指 · 环视缩放　·　轻点 · 种植</span>
+    <span class="hint__text hint__text--mouse">拖动环视，滚轮缩放。点一下草地就能种花。</span>
+    <span class="hint__text hint__text--touch">轻点种花，滑过草地起风。用两根手指转动或缩放画面。</span>
   </div>
 
   <div class="meter" aria-hidden="true">
@@ -87,12 +89,12 @@
   </div>
 
   <div class="no-webgl">
-    <p>这片山谷需要 WebGL 才能展开。</p>
-    <p class="no-webgl__sub">请换一个支持 WebGL 的浏览器，或开启硬件加速后再来。</p>
+    <p>浏览器没能显示 3D 场景。</p>
+    <p class="no-webgl__sub">请开启浏览器的硬件加速并刷新，或换用支持 WebGL 的浏览器。</p>
   </div>
 
   <pre class="debug" id="debug" hidden></pre>
 
-  <script type="module" src="../src/engine/valley-preview.js"></script>
+  <script src="../src/open-demo.js" data-module="../src/engine/valley-preview.js" data-offline="valley"></script>
 </body>
 </html>

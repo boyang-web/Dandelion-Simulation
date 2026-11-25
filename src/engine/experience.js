@@ -112,12 +112,12 @@ export function createExperience({
   const trials=createValleyTrials(scene,world,abilities,text=>store.showToast(text));
 
   const memories = {
-    oldTree: ['老树的约定', '树皮里传来一个孩子的声音：“等第一朵白绒开了，你就回来。”你想起来了：你是替山谷送种的风灵。'],
-    windmill: ['磨坊的铃声', '磨坊主曾用三只铃报春。第一声叫醒播种人，第二声打开水闸，第三声留给送种的风。'],
-    updraft: ['浮岛的来信', '根须缠着一小片纸：“地上的花谢了，高处还有种子。”那是你上一趟送给山谷的信。'],
-    skyGarden: ['云圃的种箱','第三块岩台上有一只空种箱。上一任风灵在箱底刻了字：“给飞不到这里的花。”'],
-    spring: ['泉边的脚印', '你记起旱季最后一洼水。孩子把种子分给两岸，嘱咐你：明年，要让两边都开花。'],
-    sundial: ['归期', '日晷的刻痕里还嵌着一粒种子。原来这里记的不是时辰，是每年第一阵春风回家的日子。']
+    oldTree: ['老树的约定', '树洞里响起一个熟悉的声音：“等花长出白绒，你还来吗？”去年也是这个孩子，蹲在这里等你送种子。'],
+    windmill: ['磨坊的铃声', '磨坊主探出窗来：“听见第一声，大伙儿就下地。第二声，我去开闸。”他把最短的铃推到你跟前：“这只归你。”'],
+    updraft: ['浮岛的来信', '岛下的树根挂着一张旧纸条。你认得自己的字：“山下的花谢了。要留种，去上头找。”'],
+    skyGarden: ['云圃的种箱','最高的岩台上搁着上一任风灵的种箱。箱子见了底，你才看清木板上的小字：“有多的，给山下留一把。”'],
+    spring: ['泉边的脚印', '那年泉水快干了。孩子把手里的种子分成两把，指了指对岸：“那边也得有。”'],
+    sundial: ['归期', '一粒种子卡在日晷的细槽里。你记得这道划痕。去年你送完种子回来，石针的影子刚好落在这儿。']
   };
   function refreshMemories() {
     ui.memories = Object.keys(memories).filter(id => abilities.state.settings['memory-' + id]).map(id => memories[id]);
@@ -388,7 +388,7 @@ export function createExperience({
     abilities,
     ui,
     onReadError: () => store.showToast('暂时无法读取本机相册'),
-    onJourneyComplete: () => store.showToast('旅程完成 · 五张明信片')
+    onJourneyComplete: () => store.showToast('五张明信片收齐了')
   });
 
   function refreshPostcards() {
@@ -409,7 +409,7 @@ export function createExperience({
     onEmpty: () => {
       ui.record.visible = false;
       videoTarget = null;
-      store.showToast('这台设备跑不动短片，已改存一张照片');
+      store.showToast('这段短片没录成，改拍一张照片。');
       takePhoto();
     },
     onUnsupported: () => store.showToast('这个浏览器暂不支持录制视频')
@@ -453,7 +453,7 @@ export function createExperience({
 
   function startVideo() {
     if (!abilities.has('camera') || filmCamera.isPlacing) {
-      store.showToast(filmCamera.isPlacing ? '先选一处草地安放相机' : '先去老树找回相机');
+      store.showToast(filmCamera.isPlacing ? '先选一处草地安放相机' : '先去老树那里拿相机');
       return;
     }
     if (!videoRecorder) {
@@ -564,7 +564,7 @@ export function createExperience({
 
   function beginFilmPlacement() {
     if (!abilities.has('camera')) {
-      store.showToast('相机能力还未解锁 · 先去老树');
+      store.showToast('相机在老树那里。先把种子送进树洞。');
       return;
     }
     if (filmCamera.isActive) deactivateFilmCamera(true);
@@ -585,7 +585,7 @@ export function createExperience({
 
   function toggleFilmCamera() {
     if (!abilities.has('camera')) {
-      store.showToast('相机能力还未解锁 · 先去老树');
+      store.showToast('相机在老树那里。先把种子送进树洞。');
       return;
     }
     if (filmCamera.isPlacing) {
@@ -605,7 +605,7 @@ export function createExperience({
 
   function repositionFilmCamera() {
     if (!abilities.has('camera')) {
-      store.showToast('相机能力还未解锁 · 先去老树');
+      store.showToast('相机在老树那里。先把种子送进树洞。');
       return;
     }
     if (filmCamera.isPlacing) {
@@ -622,7 +622,7 @@ export function createExperience({
       fireflyCanvas,
       sky,
       onDone: async (filename, blob) => {
-        if (!blob) { store.showToast('快门失败 · 请重试'); return; }
+        if (!blob) { store.showToast('没拍下来，请再试一次。'); return; }
         const photo = await filmArchive.addCapture(blob, filename, {
           type: 'photo',
           anchor: target?.def.id,
@@ -653,7 +653,7 @@ export function createExperience({
       }
     });
     if (shot) ambience.play('shutter');
-    else store.showToast('快门失败 · 请稍后再试');
+    else store.showToast('没拍下来，请再试一次。');
   }
 
   function captureNow() {
@@ -664,11 +664,11 @@ export function createExperience({
 
   function requestPhoto() {
     if (!abilities.has('camera') || filmCamera.isPlacing) {
-      store.showToast(filmCamera.isPlacing ? '先选一处草地安放相机' : '先去老树找回相机');
+      store.showToast(filmCamera.isPlacing ? '先选一处草地安放相机' : '先去老树那里拿相机');
       return;
     }
     if (videoRecorder?.active) stopVideo();
-    store.showToast('快门 · 记录这一刻');
+    store.showToast('正在拍照…');
     // Render the active camera immediately, then copy the frame. This keeps
     // the shutter independent of the animation loop's next tick.
     captureNow();
@@ -722,7 +722,7 @@ export function createExperience({
         player.setLiftHeld(true);
       } else if (!liftHintShown) {
         liftHintShown = true;
-        store.showToast('起飞能力还未解锁 · 去风车找上升气流');
+        store.showToast('先去苗圃，让三株花各送进四粒种子，就能起飞了。');
       }
     }
   }
@@ -837,7 +837,7 @@ export function createExperience({
     }
     if (!anchors.isSolved('oldTree') && !abilities.state.settings['memory-oldTree'] &&
         Math.hypot(point.x-firstBed.x, point.z-firstBed.z)>2.5) {
-      store.showToast('先在老树前的标记处播种，那里藏着你的第一段记忆');
+      store.showToast('第一株种在老树前。找找树根旁的标记。');
       return;
     }
     const plant = field.spawnAt(point);
@@ -1056,10 +1056,10 @@ export function createExperience({
     if (eyes.some(eye => !eye.userData.lit)) {
       if (id === 'windmill') journey.windmill.setPrimed(eyes.filter(eye => eye.userData.lit).length);
       if (id === 'spring' && mask) journey.spring.setRestored(.4);
-      if (eyes.some(e=>e.userData.lit && e.userData.bloom<1.75)) store.showToast('花盏已开 · 寻找下一座');
+      if (eyes.some(e=>e.userData.lit && e.userData.bloom<1.75)) store.showToast('这盏开了，去下一盏。');
     } else if (id === 'sundial') {
       if (abilities.unlock('time')) handleAbilityUnlock('time');
-      store.showToast('日种醒了 · 拖动日月对准刻痕');
+      store.showToast('拖动太阳或月亮，让影子落在刻痕上。');
     } else {
       anchors.solveById(id);
     }
@@ -1243,37 +1243,37 @@ export function createExperience({
       const angle = Math.atan2(dx, dz) - orbit.yaw - Math.PI;
       const arrows = ['↑','↖','←','↙','↓','↘','→','↗'];
       ui.route = arrows[(Math.round(angle / (Math.PI / 4)) + 8) % 8] + ' ' + destination.def.label + ' · '+ Math.round(Math.hypot(dx,dz))+' 米';
-      ui.story = next ? next.def.story : '山谷的风已经连通。可以回到这里，拍一张旅途明信片。';
+      ui.story = next ? next.def.story : '这里还缺一张明信片。到地标旁拍张照吧。';
       if (next?.def.id === 'oldTree') {
         const eye = eyeSets.oldTree[0];
         const planted = field.plants.find(plant => !plant.finished && plant.hasFlowerHead);
         if (delivery && (!field.plants.includes(delivery.flower) || !delivery.flower.seeds.some(seed => seed.active && seed.windEye === delivery.target))) delivery = null;
         if (!moved) {
           ui.route = '风灵醒来';
-          ui.story = coarse ? '你是刚醒来的风灵，要把春种送回山谷。推动左摇杆，沿花径抵达坡下的路标。' : '你是刚醒来的风灵，要把春种送回山谷。用 WASD 沿花径前往坡下的路标。';
+          ui.story = coarse ? '你是来送种子的风灵。推左摇杆下坡，穿过路边那两堆石头。' : '你是来送种子的风灵。按 WASD 下坡，穿过路边那两堆石头。';
           guideAt(walkMarker,'滚到这里');
         } else if (delivery) {
-          ui.story = '看白色绒种穿过花盏。送到树洞，老树就会醒来。';
+          ui.story = '看树洞边的花盏。五粒种子穿过去，老树就醒了。';
           const seed = delivery.flower.seeds.find(seed => seed.active && seed.windEye === eye);
-          if (seed) guideAt(seed.center, '随风飞行的绒种');
+          if (seed) guideAt(seed.center, '飞向树洞的种子');
         } else if (!planted || Math.hypot(planted.group.position.x-eye.position.x,planted.group.position.z-eye.position.z)>8) {
-          ui.story = planted ? '这株花离树洞太远。点标记处，在风能吹到的位置再种一株。' : '老树的根还记得你。点标记处种下一株蒲公英，听听树里的声音。';
+          ui.story = planted ? '离树洞远了点。到标记旁再种一株。' : '点树根前那块土，种下第一株蒲公英。';
           const nearby=Math.hypot(player.root.position.x-firstBed.x,player.root.position.z-firstBed.z)<=5;
-          if (!nearby) ui.story='继续沿花径走向老树，在树前的记忆土旁停下。';
-          guideAt(firstBed, nearby ? '点这里种花' : '走向记忆土');
+          if (!nearby) ui.story='顺着小路去老树。走到树根前那块土旁边再播种。';
+          guideAt(firstBed, nearby ? '点这里种花' : '走到树根旁');
         } else if (!planted.canBlow) {
-          ui.story = '等白绒展开，走到花的后方，让花和花盏排在你面前。';
-          guideAt(planted.headCenter, '等待白绒展开');
+          ui.story = '趁白绒还没长齐，先绕到花后面。往前看，花在近处，花盏在远处。';
+          guideAt(planted.headCenter, '等花头变白');
         } else {
-          ui.story = '让花在你和花盏之间，朝花盏滚过花旁。你经过时的风会卷起白绒，沿滚动方向送种。';
-          guideAt(planted.headCenter, '朝花盏滚过这株花');
+          ui.story = '对准树洞边的花盏，贴着花滚过去。种子会顺着你滚动的方向飞。';
+          guideAt(planted.headCenter, '对准花盏，贴着花滚');
         }
       } else if (next?.def.id === 'windmill') {
         const bells = Math.min(2,eyeSets.windmill.filter(eye => eye.userData.lit).length);
-        ui.story = needsPhoto ? (coarse?'在老树旁点快门':'在老树旁按 P')+'记录第一朵花，再带着明信片去磨坊。' : ['磨坊有三只风铃。先把种子送给发亮的长铃。','第一声有了回音。循着金光，吹响第二只铃。','叶轮还差最后一拍。把种子送进最短的铃。'][bells];
+        ui.story = needsPhoto ? (coarse?'在老树旁点快门':'在老树旁按 P')+'，拍下第一张明信片，再去磨坊。' : ['先找最长的那只风铃，把种子送进去。','第一只响了。转到第二只亮着的风铃旁边。','还剩最短的那只。朝它送种，风车就能转起来。'][bells];
       } else if(next?.def.id==='updraft'){
         const plants=bedPlants();
-        ui.story='苗圃的三块六角种床要同时有花。分别朝中央花盏滚过每株，每株送入 4 粒。';
+        ui.story='三块种床各留一株花。轮流从花旁滚过，让每株都有 4 粒种子飞进中间的花盏。';
         if(Math.hypot(dx,dz)<18){
           const i=plants.findIndex(f=>!f);
           if(i>=0) guideAt(levels.beds[i].soil.position,'种床 '+(i+1)+' · 点泥土种花',i);
@@ -1284,18 +1284,18 @@ export function createExperience({
         }
         ui.story+=' 三床：'+plants.map(f=>f ? (plantCredits.get(f)||0)+'/4' : '待种').join(' · ');
       } else if(next?.def.id==='skyGarden'){
-        ui.story=islandStep()<3 ? '从岩台侧面升空，高过草面后移到岛上，松开升空落脚。石碑 '+islandStep()+'/3。'
-          : '在最高岩台上种一株花，沿草面滚过花旁，把种子送进云圃花盏。';
+        ui.story=islandStep()<3 ? '贴着岩台外侧往上飞。高过草面后飞到岛上，松开升空键落地。已着陆 '+islandStep()+'/3。'
+          : '就在最高这座岛上种花，再朝花盏滚过花旁。';
       } else if(next?.def.id==='sundial'){
-        ui.story=abilities.has('time')?'拖动日月，让日影对准刻痕。':'泉水让你能养更多花。在晷旁同时种活四株，然后向日种花盏送种。';
+        ui.story=abilities.has('time')?'拖动日月，让日影对准刻痕。':'日晷旁要留四株活花。种齐以后，再往花盏里送种子。';
       }
     } else {
       ui.route = '自由漫游';
-      ui.story = '五张明信片已寄出。风还在山谷里。';
+      ui.story = '五张明信片都收齐了。还想在哪儿拍一张？';
     }
     if(next?.def.id==='oldTree' && moved) {
-      ui.route=abilities.state.settings['memory-oldTree'] ? '第三课 · 风滚送种' : '第二课 · 在记忆土播种';
-    } else if(next?.def.id==='oldTree') ui.route='第一课 · 风灵醒来';
+      ui.route=abilities.state.settings['memory-oldTree'] ? '第三课 · 滚过花旁' : '第二课 · 在树根旁种花';
+    } else if(next?.def.id==='oldTree') ui.route='第一课 · 滚下山坡';
     if(next?.def.id==='oldTree' && !abilities.state.settings['memory-oldTree']) {
       const goal=moved ? firstBed : walkMarker;
       const dx=goal.x-player.root.position.x, dz=goal.z-player.root.position.z;
@@ -1306,7 +1306,7 @@ export function createExperience({
     const activeEye=next && eyeSets[next.def.id].find(e=>!e.userData.lit);
     if(activeEye && !needsPhoto && (next.def.id!=='oldTree' || abilities.state.settings['memory-oldTree'])) {
       ui.story+='　入盏 '+activeEye.userData.total+'/'+SEED_GOALS[next.def.id]+' 粒';
-      if(activeEye.userData.bloom>=0) ui.story+=' · 花盏初开';
+      if(activeEye.userData.bloom>=0) ui.story+=' · 花瓣正在打开';
     }
     if (filmCamera.isActive || filmCamera.isPlacing || ui.journeyEnd.visible) ui.windGuide = null;
     if (filmCamera.isPlacing) {

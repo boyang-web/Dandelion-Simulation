@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#e8e2d0" />
-  <title>远景档案 · 等风来</title>
+  <title>树与风车 · 等风来</title>
   <meta name="description" content="远景资产库：阔叶树与风车。树的枝干、叶片卡、风属性与风车结构都可以近距离查看。" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23e9e1c6'/%3E%3Cpath d='M16 28V12M16 18l-6-5M16 16l6-6M11 23h10' stroke='%2357663c' stroke-width='1.6' fill='none'/%3E%3Ccircle cx='16' cy='10' r='4' fill='%23788c4f'/%3E%3C/svg%3E" />
   <link rel="stylesheet" href="../src/styles/vegetation.css" />
@@ -26,14 +26,16 @@
   <script type="importmap">
     { "imports": { "three": "../vendor/three.module.js" } }
   </script>
+<link rel="stylesheet" href="../src/styles/demo-nav.css">
 </head>
 <body>
+  <a class="demo-home" href="../index.html">返回目录</a>
   <div class="shell">
     <aside class="rail">
       <header class="rail__head">
-        <p class="kicker">LANDMARKS · ASSET LIBRARY</p>
-        <h1>远景档案</h1>
-        <p class="sub">树与风车 · 4 个可复用资产<br />3 个树变体 + 1 座风车</p>
+        <p class="kicker">地标模型</p>
+        <h1>树与风车</h1>
+        <p class="sub">三棵树的枝干长法各不相同。最后一件展品是风车。</p>
       </header>
 
       <button class="all-btn" id="allBtn" type="button">
@@ -44,9 +46,9 @@
       <nav class="asset-list" id="assetList" aria-label="远景资产列表"></nav>
 
       <footer class="rail__foot">
-        <p>树 = 合并枝干 + 叶片卡 · 风属性</p>
-        <p>风车 = 砖塔 / 画廊 / 格栅叶片</p>
-        <p><a href="./vegetation.html">← 植物档案</a> · <a href="../index.html">Demo 目录</a></p>
+        <p>树枝合成一个网格，树叶用薄片绘制。</p>
+        <p>绕到塔后，可以看到调转风车朝向的小尾轮。</p>
+        <p><a href="./vegetation.html">← 植物档案</a></p>
       </footer>
     </aside>
 
@@ -75,19 +77,10 @@
         <p class="caption__meta" id="capMeta"></p>
       </section>
 
-      <p class="hint">拖动旋转 · 滚轮缩放 · 风滑杆吹动树冠</p>
+      <p class="hint">拖动转个面，滚轮看近处。调高风力，看看哪根枝条先动。</p>
     </main>
   </div>
 
-  <script>
-    (function () {
-      if (location.protocol === 'file:') {
-        document.write('<script src="../vendor/three.global.js"><\/script>');
-        document.write('<script src="../src/engine/bundle-landmarks.js?v=57"><\/script>');
-      } else {
-        document.write('<script type="module" src="../src/engine/landmarks-preview.js?v=57"><\/script>');
-      }
-    })();
-  </script>
+  <script src="../src/open-demo.js" data-module="../src/engine/landmarks-preview.js" data-offline="landmarks"></script>
 </body>
 </html>

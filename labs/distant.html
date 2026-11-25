@@ -28,8 +28,10 @@
   <script type="importmap">
     { "imports": { "three": "../vendor/three.module.js" } }
   </script>
+<link rel="stylesheet" href="../src/styles/demo-nav.css">
 </head>
 <body>
+  <a class="demo-home" href="../index.html">返回目录</a>
   <div class="atmosphere" aria-hidden="true">
     <div class="sky-glow"></div>
   </div>
@@ -71,22 +73,13 @@
   </div>
 
   <header class="masthead">
-    <p class="masthead__kicker">Distant study · 远景</p>
+    <p class="masthead__kicker">远景研究</p>
     <h1 class="masthead__title">山与云</h1>
-    <a class="masthead__sub" href="../index.html">← Demo 目录</a>
+
   </header>
 
   <pre class="debug" id="debug" hidden></pre>
 
-  <script>
-    (function () {
-      if (location.protocol === 'file:') {
-        document.write('<script src="../vendor/three.global.js"><\/script>');
-        document.write('<script src="../src/engine/bundle-distant.js?v=57"><\/script>');
-      } else {
-        document.write('<script type="module" src="../src/engine/distant.js?v=57"><\/script>');
-      }
-    })();
-  </script>
+  <script src="../src/open-demo.js" data-module="../src/engine/distant.js" data-offline="distant"></script>
 </body>
 </html>

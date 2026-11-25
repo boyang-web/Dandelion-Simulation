@@ -256,10 +256,6 @@ function updateUI() {
   }
 }
 
-const hintMouse = document.querySelector('.hint__text--mouse');
-const hintTouch = document.querySelector('.hint__text--touch');
-if (hintMouse) hintMouse.textContent = '拖动 · 环视/仰视　·　滚轮 · 缩放　·　点击 · 种植';
-if (hintTouch) hintTouch.textContent = '单指滑过 · 起风　·　双指 · 环视/仰视缩放　·　轻点 · 种植';
 
 /* ------------------------------------------------------------------ */
 /* loop                                                                */

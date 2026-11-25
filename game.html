@@ -39,33 +39,19 @@
       }
     }
   </script>
+<link rel="stylesheet" href="./src/styles/demo-nav.css">
 </head>
 <body>
+  <a class="demo-home" href="./index.html">返回目录</a>
   <div id="app"></div>
 
   <noscript>
     <div class="no-webgl is-shown">
-      <p>这片草地需要 JavaScript 与 WebGL 才能生长。</p>
+      <p>显示游戏画面需要 JavaScript 和 WebGL。</p>
       <p class="no-webgl__sub">请在支持 WebGL 的浏览器中开启脚本后再来。</p>
     </div>
   </noscript>
 
-  <script>
-    (function () {
-      // Vue is loaded as an ES module, which browsers block on file://.
-      // A local server is enough; everything stays offline-capable.
-      if (location.protocol !== 'file:') return;
-      var tip = document.createElement('div');
-      tip.className = 'no-webgl is-shown';
-      tip.innerHTML =
-        '<p>请用本地服务器打开这片山谷</p>' +
-        '<p class="no-webgl__sub">Windows 双击 <code>Start.cmd</code>，macOS 双击 <code>启动.command</code> 即可；' +
-        '或在项目目录运行 <code>python3 -m http.server 8000</code> 后访问 ' +
-        '<code>http://localhost:8000/</code>。</p>';
-      document.body.appendChild(tip);
-    })();
-  </script>
-
-  <script type="module" src="./src/main.js?v=70"></script>
+  <script src="./src/open-demo.js" data-module="./src/main.js" data-offline="game"></script>
 </body>
 </html>

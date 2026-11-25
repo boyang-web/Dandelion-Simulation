@@ -1,0 +1,17 @@
+.demo-home {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  padding: 7px 14px;
+  border: 1px solid #b8bdac;
+  border-radius: 20px;
+  background: #faf8ed;
+  color: #294136;
+  font: 500 13px/1.4 system-ui, sans-serif;
+  text-decoration: none;
+  pointer-events: auto;
+}
+.demo-home:hover, .demo-home:focus-visible { background: #294136; color: white; }
+@media print { .demo-home { display: none; } }

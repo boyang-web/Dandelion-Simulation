@@ -9,28 +9,19 @@
 <header><a class="brand" href="./index.html">等风来 <i lang="en">Taraxacum</i></a><nav aria-label="目录"><a href="#play">试玩</a><a href="#gallery">资产陈列</a><a href="dev.html">控制台 ↗</a></nav></header>
 <main>
 <section class="hero" id="play">
-<div class="copy"><p class="eyebrow">可玩 Demo <span> / </span> 六章探索</p><h1>风灵山谷</h1><p>从一株蒲公英开始，把种子送回山谷。沿着花径唤醒老树与风车，学会乘风，再登上云端的浮岛。</p><a class="button" href="game.html">进入山谷 <b>→</b></a></div>
+<div class="copy"><p class="eyebrow">主线试玩</p><h1>风灵山谷</h1><p>你是谷里送种子的风灵。老树洞边有一只空花盏，先种一株蒲公英，再从花旁滚过去，看看有几粒能落进盏里。</p><a class="button" href="game.html">进入山谷 <b>→</b></a></div>
 <img src="assets/wind-island.webp" alt="草甸、垂藤与瀑布覆盖的浮空岩岛" class="island">
 </section>
 <div class="pair">
-<a class="panel proto" href="prototype/index.html"><small>概念原型</small><h2>风的试验田 <b>↗</b></h2><p>固定机位，点击种植，滑过成熟的花头看绒种随风散开。</p></a>
-<a class="panel studio" href="dev.html"><small>开发工具</small><h2>场景控制台 <b>↗</b></h2><p>在当前游戏场景中打开调参面板，观察风场、光照与植被的变化。</p></a>
+<a class="panel proto" href="prototype/index.html"><small>概念原型</small><h2>风的试验田 <b>↗</b></h2><p>这是最早的玩法。镜头停在草地边，点哪儿，花就长在哪儿。等白绒长齐，用鼠标从花头上扫过去。</p></a>
+<a class="panel studio" href="dev.html"><small>开发工具</small><h2>场景控制台 <b>↗</b></h2><p>想看草在大风里能弯多低？进来调风速。这里也能改光照和雾的浓淡。</p></a>
 </div>
 <section id="gallery"><h2>资产陈列室</h2>
 <div class="exhibits">
-<a href="labs/vegetation.html"><strong>植物图鉴</strong><span>草叶、野花与植被组合</span><b>↗</b></a>
-<a href="labs/landmarks.html"><strong>地标模型</strong><span>树木、风车与场景地标</span><b>↗</b></a>
-<a href="labs/distant.html"><strong>远景研究</strong><span>山脊、天空与大气层次</span><b>↗</b></a>
-<a href="labs/valley.html"><strong>山谷全景</strong><span>在完整环境中查看资产组合</span><b>↗</b></a>
+<a href="labs/vegetation.html"><strong>植物图鉴</strong><span>九种草和野花，每种有三种株形</span><b>↗</b></a>
+<a href="labs/landmarks.html"><strong>地标模型</strong><span>三棵梧桐，一座风车</span><b>↗</b></a>
+<a href="labs/distant.html"><strong>远景研究</strong><span>看云影和远山之间的雾</span><b>↗</b></a>
+<a href="labs/valley.html"><strong>山谷全景</strong><span>沿山脚转一圈，看看草木长在哪里</span><b>↗</b></a>
 </div></section>
-</main><footer>等风来 · 游戏 Demo <a href="docs/presentation.html">查看项目演示文稿 ↗</a></footer>
-<dialog id="launch"><h2>打开本地 Demo</h2><p>Windows 双击项目里的 Start.cmd，macOS 双击「启动.command」。启动器会在浏览器中打开目录。</p><form method="dialog"><button>知道了</button></form></dialog>
-<script>
-if(location.protocol==='file:') document.addEventListener('click',event=>{
-  const link=event.target.closest('a');
-  if(link && !link.hash && !link.href.endsWith('/docs/presentation.html') && !link.classList.contains('brand')){
-    event.preventDefault();document.getElementById('launch').showModal();
-  }
-});
-</script>
+</main><footer>等风来 · 游戏 Demo <a href="docs/presentation.html">项目讲解 ↗</a></footer>
 </body></html>

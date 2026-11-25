@@ -11,10 +11,10 @@ export const ABILITY_ORDER = ['camera', 'multiPlant', 'lift', 'restore', 'time']
 
 export const ABILITY_LABELS = {
   camera: '相机',
-  multiPlant: '多株',
+  multiPlant: '种三株',
   lift: '起飞',
-  restore: '恢复',
-  time: '时间'
+  restore: '种六株',
+  time: '拨动日月'
 };
 
 const DEFAULT_ABILITIES = {

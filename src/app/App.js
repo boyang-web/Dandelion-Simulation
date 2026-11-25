@@ -79,7 +79,7 @@ export default defineComponent({
     });
 
     function restart() {
-      if (window.confirm('从头开始？旅程进度和明信片收集将重置，已存入胶片卷的照片会保留。')) {
+      if (window.confirm('重新从坡顶出发？关卡和明信片要从头收集，拍过的照片还在胶片卷里。')) {
         callApi('restartJourney');
       }
     }

@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>等风来 · 蒲公英 — Vue 重构与体验评审</title>
-<meta name="description" content="等风来 · 蒲公英：Vue 框架化重构、功能实现与用户体验说明。" />
+<meta name="description" content="等风来的玩法和制作笔记，从草地上的风到游戏里的第一张照片。" />
 <style>
   :root {
     --paper: #f6efdc;
@@ -99,6 +99,12 @@
     pointer-events: none;
   }
 
+  .deck-tools { position:absolute; top:12px; left:22px; display:flex; gap:6px; pointer-events:auto; }
+  .deck-tools button,.panel-close { padding:6px 12px; cursor:pointer; }
+  .panel-close { float:right; }
+  .outline li button { border:0; background:none; color:inherit; cursor:pointer; font:inherit; text-align:left; }
+  .nav-btn:disabled { opacity:.35; cursor:default; }
+  .chrome .page { right:142px; }
   .progress {
     position: absolute;
     top: 0;
@@ -671,15 +677,17 @@
   .nav-hint { display: none; }
   }
 </style>
+<link rel="stylesheet" href="../src/styles/demo-nav.css">
 </head>
 <body>
+  <a class="demo-home" href="../index.html">退出演示</a>
 <main class="stage" id="stage">
 
-  <div class="chrome" aria-hidden="true">
+  <div class="chrome">
     <i class="progress" id="progress"></i>
-    <span class="brand">Taraxacum · 等风来</span>
+    <div class="deck-tools"><button type="button" id="outlineToggle" aria-controls="outline" aria-expanded="false">选页</button><button type="button" id="notesToggle" aria-controls="notes" aria-expanded="false">备注</button></div>
     <span class="page" id="page">01 / 33</span>
-    <span class="nav-hint">← → 翻页 · O 目录 · N 备注 · P 打印</span>
+    <span class="nav-hint">← → 翻页 · O 选页 · N 备注 · Esc 退出</span>
     <button class="nav-btn nav-btn--prev" id="prev" type="button" aria-label="上一页">←</button>
     <button class="nav-btn nav-btn--next" id="next" type="button" aria-label="下一页">→</button>
   </div>
@@ -687,7 +695,7 @@
   <!-- ============================================================== -->
   <!-- 01 · 封面                                                      -->
   <!-- ============================================================== -->
-  <section class="slide cover" data-title="封面" data-notes="开场 60 秒：项目是什么、今天要评审什么。强调这不是改视觉，而是改结构；玩法与手感保持不变。">
+  <section class="slide cover" data-title="封面" data-notes="先展示目录。第一次玩的观众可以直接进山谷。">
     <svg class="cover-art" viewBox="0 0 600 600" aria-hidden="true">
       <defs>
         <radialGradient id="fluff" cx="50%" cy="50%" r="50%">
@@ -720,15 +728,11 @@
       </g>
     </svg>
 
-    <div class="kicker">FRAMEWORK REFACTOR · REVIEW DECK</div>
+    <div class="kicker">游戏制作笔记</div>
     <h1>等风来</h1>
-    <p class="sub">Dandelion · 一次 Vue 框架化重构</p>
+    <p class="sub">一朵蒲公英的两种玩法</p>
     <div class="rule"></div>
-    <p class="lede" style="max-width: 34em">
-      一个没有外部贴图的程序化 3D 山谷：滑过草地起风，点击种下蒲公英，
-      在五个地标之间解锁相机、起飞与时间。本稿说明重构后的结构、功能实现、
-      体验取舍与验证结果。
-    </p>
+    <p class="lede" style="max-width: 34em">试着在老树前种一株蒲公英。等花头长白，从旁边滚过去，树洞边的花盏就会接到种子。</p>
     <div class="meta">
       <div><b>技术栈</b>Three.js · Vue 3 · 零构建</div>
       <div><b>交付</b>重构代码 / 测试报告 / 本文档</div>
@@ -739,15 +743,11 @@
   <!-- ============================================================== -->
   <!-- 02 · 一页看懂                                                  -->
   <!-- ============================================================== -->
-  <section class="slide" data-title="一页看懂" data-notes="用四个数字建立量级：引擎 29 模块、19 个组件、场景层 0 DOM 查询、68 项断言。">
+  <section class="slide" data-title="主线与原型" data-notes="原型中，鼠标扫过花头就会起风。主线要靠风灵从花旁滚过。">
     <div class="kicker">ONE PAGE</div>
-    <h2>一页看懂：它是什么，改了什么</h2>
+    <h2>先玩哪个版本？</h2>
     <div class="body">
-      <p class="lede">
-        它不是一个“模型展示页”，而是一段可以被操作的自然：风有方向、种子有惯性、
-        蒲公英会生长也会淡出，时间可以被拨动。重构的目标，是让这段自然继续成立，
-        同时让它的“控制面板”变成一套可读、可测、可改的 Vue 应用。
-      </p>
+      <p class="lede">主线里你是送种子的风灵。另一个入口保留了最早的小草地：镜头固定，手一划，花头上的白绒就散开。</p>
 
       <div class="cols c4">
         <div class="stat"><b>14.9k</b><span>行引擎代码（30 个模块）</span></div>
@@ -792,9 +792,9 @@
   <!-- ============================================================== -->
   <!-- 03 · 设计目标                                                  -->
   <!-- ============================================================== -->
-  <section class="slide" data-title="设计目标与原则" data-notes="三条原则分别对应视觉、交互、工程。为后面的取舍做铺垫。">
+  <section class="slide" data-title="设计目标与原则" data-notes="找一丛高草观察草尖，再看旁边的蒲公英。">
     <div class="kicker">PRINCIPLES</div>
-    <h2>设计目标：不画风景，画“风留下的证据”</h2>
+    <h2>草倒向哪边，风就吹向哪边</h2>
     <div class="body">
       <div class="cols c-3-2">
         <div>
@@ -807,7 +807,7 @@
           </ul>
         </div>
         <div class="card card--dark">
-          <h3>一句话原则</h3>
+          <h3>画面里的风向</h3>
           <p class="small" style="font-family: var(--serif); font-size: 16px; line-height: 1.9; color: #fbf4e2">
             “让画面自己说话，<br />让界面在需要时出现，<br />让代码在改动时不互相牵连。”
           </p>
@@ -829,33 +829,33 @@
   <!-- ============================================================== -->
   <!-- 04 · 体验地图                                                  -->
   <!-- ============================================================== -->
-  <section class="slide" data-title="体验地图" data-notes="按用户真实路径讲，不要按代码模块讲。强调“能力=新的观看方式”。">
+  <section class="slide" data-title="体验地图" data-notes="演示到老树就可以停下来，让观众亲手送一回种子。">
     <div class="kicker">JOURNEY</div>
-    <h2>体验地图：五个地标，五次能力扩张</h2>
+    <h2>从老树到日晷</h2>
     <div class="body">
       <div class="flow">
-        <div class="flow-node"><b>1 · 老树</b>在附近种下一株蒲公英 → 老树开花 → 树洞相机落地</div>
+        <div class="flow-node"><b>1 · 老树</b>在树前种花，送进五粒种子，拿到相机</div>
         <span class="flow-arrow">→</span>
-        <div class="flow-node"><b>2 · 风车</b>三个风眼各一株 → 风车转动 → 可同时种更多</div>
+        <div class="flow-node"><b>2 · 风车</b>按顺序吹响三只铃，每只送九粒</div>
         <span class="flow-arrow">→</span>
-        <div class="flow-node"><b>3 · 上升气流</b>靠近按 E → 借风升起 → 长按空格升空</div>
+        <div class="flow-node"><b>3 · 苗圃和云圃</b>三株各送四粒，再飞上三座岛，到顶播种</div>
         <span class="flow-arrow">→</span>
-        <div class="flow-node"><b>4 · 枯泉</b>靠近按 E → 泉眼复苏 → 种子更快补满</div>
+        <div class="flow-node"><b>4 · 枯泉</b>高低花盏各收十粒，泉水流回来</div>
         <span class="flow-arrow">→</span>
-        <div class="flow-node"><b>5 · 日晷</b>把太阳拨到刻线 → 日影对齐 → 拨动时间</div>
+        <div class="flow-node"><b>5 · 日晷</b>留下四株花，送满十八粒，再对准日影</div>
       </div>
 
       <div class="cols c3">
         <div class="card">
-          <h3>能力是“工具”，不是数值</h3>
+          <h3>每次能种几株</h3>
           <p class="small">相机解锁取景与拍照；多株提高种植上限（1→3→6→15）；起飞改变移动维度；恢复让花头更快补种；时间让你主动控制光照。</p>
         </div>
         <div class="card">
-          <h3>每一站都改变“看法”</h3>
-          <p class="small">相机让你离开主角；起飞让你俯视山谷；时间让你看见黄昏与星夜。能力不是奖励，而是新的观看方式。</p>
+          <h3>在空中找落脚点</h3>
+          <p class="small">从岩台侧面起飞。等眼前能看见整片草面，再飞过去落脚。</p>
         </div>
         <div class="card">
-          <h3>明信片是旅程的存档</h3>
+          <h3>五张地标明信片</h3>
           <p class="small">在已解锁地标附近拍照/录像，会得到对应明信片；集齐五张出现片尾联系表，进度写入 localStorage。</p>
         </div>
       </div>
@@ -876,7 +876,7 @@
           <div class="split-list" style="margin-top:6px; font-size:11px">
             <span>种植上限 <b>15</b></span><span>花期 <b>50–70s</b></span>
             <span>补满花头 <b>≈20s</b></span><span>昼夜一轮 <b>240s</b></span>
-            <span>胶片卷 <b>12</b> 条</span><span>短片 <b>5s / 720p</b></span>
+            <span>短片最多 <b>12</b> 条</span><span>短片 <b>5s / 720p</b></span>
           </div>
         </div>
       </div>
@@ -889,16 +889,16 @@
   <section class="slide divider" data-title="分节 · 重构">
     <div class="kicker">PART 01</div>
     <div class="index">01</div>
-    <h2>重构：把“一个文件”拆成“三层”</h2>
-    <p class="lede">先看结构，再看契约，最后看迁移前后的对照。</p>
+    <h2>游戏代码放在哪里</h2>
+    <p class="lede">Three.js 算场景，Vue 显示按钮和提示。两边共用的状态放在 ui.js。</p>
   </section>
 
   <!-- ============================================================== -->
   <!-- 06 · 重构前的痛点                                              -->
   <!-- ============================================================== -->
-  <section class="slide" data-title="重构前的问题" data-notes="不要否定旧代码，说明它当时的合理性：单页、快速迭代。现在要为可维护性付出结构成本。">
+  <section class="slide" data-title="重构前的问题" data-notes="旧版的场景逻辑和按钮事件放在同一个入口文件里。">
     <div class="kicker">BEFORE</div>
-    <h2>重构前：场景与界面缠在同一个文件里</h2>
+    <h2>原来一处快门要改几处代码</h2>
     <div class="body">
       <div class="cols c2">
         <div>
@@ -946,9 +946,9 @@ function updateAbilityPanel() {
   <!-- ============================================================== -->
   <!-- 07 · 目录结构                                                  -->
   <!-- ============================================================== -->
-  <section class="slide" data-title="新目录结构" data-notes="打开真实目录对照。指出 engine 不依赖 Vue，app 不依赖场景对象。">
+  <section class="slide" data-title="新目录结构" data-notes="需要查改动时，先辨认它属于场景还是界面。">
     <div class="kicker">STRUCTURE</div>
-    <h2>新结构：按“责任”而不是按“文件类型”分</h2>
+    <h2>目录里的场景、界面和测试</h2>
     <div class="body">
       <div class="cols c-3-2">
         <div>
@@ -993,9 +993,9 @@ function updateAbilityPanel() {
   <!-- ============================================================== -->
   <!-- 08 · 三层架构图                                                -->
   <!-- ============================================================== -->
-  <section class="slide" data-title="三层架构" data-notes="重点讲“唯一连接点” runtime.js，以及三层各自禁止做的事。">
+  <section class="slide" data-title="三层架构" data-notes="风速由引擎计算，界面读取这一帧的值。">
     <div class="kicker">LAYERS</div>
-    <h2>三层架构：引擎 / 状态 / 视图</h2>
+    <h2>谁算风，谁画界面</h2>
     <div class="body">
       <div class="cols c3">
         <div class="card card--dark">
@@ -1051,7 +1051,7 @@ abilities.js  audio.js</pre>
   <!-- ============================================================== -->
   <section class="slide" data-title="单向数据流">
     <div class="kicker">DATA FLOW</div>
-    <h2>单向数据流：只有一条“写”的路径</h2>
+    <h2>按下快门后</h2>
     <div class="body">
       <div class="cols c-3-2">
         <div>
@@ -1101,9 +1101,9 @@ function toggleSound() {
   <!-- ============================================================== -->
   <!-- 10 · store 字段                                                -->
   <!-- ============================================================== -->
-  <section class="slide" data-title="状态表：谁写谁读" data-notes="如果有人问“界面为什么显示这个”，答案就在这张表。">
+  <section class="slide" data-title="状态表：谁写谁读" data-notes="这张表用来查字段的写入位置。">
     <div class="kicker">STATE CONTRACT</div>
-    <h2>状态表：每个字段只有一个写入方</h2>
+    <h2>界面上的数字从哪里来</h2>
     <div class="body">
       <p class="lede" style="max-width:none">
         这张表就是“界面为什么这样”的答案。高频字段（风、录制计时）只做轻量写；低频字段（能力、明信片）事件驱动。
@@ -1149,9 +1149,9 @@ function toggleSound() {
   <!-- ============================================================== -->
   <!-- 11 · 天空的 60fps 旁路                                         -->
   <!-- ============================================================== -->
-  <section class="slide" data-title="天空绘制旁路" data-notes="解释为什么太阳/月亮不放进 reactive：每帧数值与结构状态的分离。">
+  <section class="slide" data-title="天空绘制旁路" data-notes="日照颜色每帧都变。这里省下了每帧经过 Vue 的开销。">
     <div class="kicker">PERFORMANCE BOUNDARY</div>
-    <h2>唯一的高频旁路：sky paint → CSS 变量</h2>
+    <h2>天空为什么直接写 CSS 变量</h2>
     <div class="body">
       <div class="cols c-3-2">
         <div>
@@ -1205,9 +1205,9 @@ cls(sun.root, 'is-active', body.active);</pre>
   <!-- ============================================================== -->
   <!-- 12 · 组件清单                                                  -->
   <!-- ============================================================== -->
-  <section class="slide" data-title="组件清单" data-notes="挑 3 个组件现场打开：AbilityPanel（最简单）、FilmPanel（列表+媒体）、CelestialBody（事件+无障碍）。">
+  <section class="slide" data-title="组件清单" data-notes="找相册入口时从 FilmButton 开始，缩略图在 FilmPanel。">
     <div class="kicker">COMPONENTS</div>
-    <h2>19 个组件：每个只做一件事</h2>
+    <h2>界面组件各管哪一块</h2>
     <div class="body">
       <div class="cols c2">
         <div>
@@ -1257,13 +1257,13 @@ cls(sun.root, 'is-active', body.active);</pre>
   <!-- ============================================================== -->
   <section class="slide" data-title="引擎模块地图">
     <div class="kicker">ENGINE MAP</div>
-    <h2>引擎模块：29 个文件，按“自然对象”组织</h2>
+    <h2>场景里的对象</h2>
     <div class="body">
       <div class="cols c3">
         <div class="card">
           <h3>地形与植被</h3>
           <p class="tiny mono">world.js · vegetation.js · meadow.js<br />tree-assets.js · windmill-asset.js<br />landmarks.js · journey-assets.js</p>
-          <p class="small">210m 高度场、三层山脊、5 种草 / 4 种花、五个地标的真实几何。</p>
+          <p class="small">210m 高度场、三层山脊、5 种草 / 4 种花、山谷里的地标模型。</p>
         </div>
         <div class="card">
           <h3>风与生命</h3>
@@ -1280,7 +1280,7 @@ cls(sun.root, 'is-active', body.active);</pre>
         <div class="card">
           <h3>进度与叙事</h3>
           <p class="tiny mono">abilities.js · anchors.js · film-archive.js</p>
-          <p class="small">能力开关与最大株数、五个挂点的判定与提示、明信片与胶片卷。</p>
+          <p class="small">能力开关与最大株数、六处地标的过关条件和提示、明信片与胶片卷。</p>
         </div>
         <div class="card">
           <h3>捕获与声音</h3>
@@ -1303,9 +1303,9 @@ cls(sun.root, 'is-active', body.active);</pre>
   <!-- ============================================================== -->
   <!-- 14 · 迁移对照                                                  -->
   <!-- ============================================================== -->
-  <section class="slide" data-title="迁移前后对照" data-notes="强调行为等价：同样的交互，全部有测试兜底。">
+  <section class="slide" data-title="迁移前后对照" data-notes="可以对照旧版创建下载链接的片段。">
     <div class="kicker">MIGRATION</div>
-    <h2>迁移对照：同样的行为，换一种写法</h2>
+    <h2>同一个胶片卷，两种写法</h2>
     <div class="body">
       <table>
         <thead><tr><th>能力</th><th>重构前</th><th>重构后</th></tr></thead>
@@ -1335,16 +1335,16 @@ cls(sun.root, 'is-active', body.active);</pre>
   <section class="slide divider" data-title="分节 · 功能实现">
     <div class="kicker">PART 02</div>
     <div class="index">02</div>
-    <h2>功能实现：风、种子、时间、地标</h2>
-    <p class="lede">逐项说明“看得见的效果”背后在算什么，以及为什么这样算。</p>
+    <h2>种子怎样起飞</h2>
+    <p class="lede">同一阵风吹过，草会倒，花茎会弯，脱落的种子还会接着飞。</p>
   </section>
 
   <!-- ============================================================== -->
   <!-- 16 · 局部风场                                                  -->
   <!-- ============================================================== -->
-  <section class="slide" data-title="局部风场" data-notes="可以现场滑动鼠标演示。解释 trail 的生命期与“只吹经过区域”。">
+  <section class="slide" data-title="局部风场" data-notes="固定机位原型最适合演示鼠标附近的风。">
     <div class="kicker">MECHANISM 01</div>
-    <h2>局部风场：风只作用在手指经过的地方</h2>
+    <h2>手边的风能吹多远</h2>
     <div class="body">
       <div class="cols c-3-2">
         <div>
@@ -1368,7 +1368,7 @@ strength += (raw - strength) * (1 - exp(-attack * dt));</pre>
         </div>
         <div>
           <ul class="clean">
-            <li><strong>不是全屏风。</strong>指针离开后余流只保留 0.45 s。</li>
+            <li><strong>风吹过的范围有限。</strong>指针离开后余流只保留 0.45 s。</li>
             <li><strong>风力互相叠加。</strong>手势风、风滚草风源、自然风各自独立，采样时取最强源。</li>
             <li><strong>草更“钝”。</strong>方向低通、强度慢滤、反向时压到约 15%，避免左右抖动。</li>
             <li><strong>种子更“灵”。</strong>在风区里响应快，离开后靠惯性继续飞。</li>
@@ -1391,9 +1391,9 @@ strength += (raw - strength) * (1 - exp(-attack * dt));</pre>
   <!-- ============================================================== -->
   <!-- 17 · 自然风                                                    -->
   <!-- ============================================================== -->
-  <section class="slide" data-title="自然风与草浪" data-notes="说明自然风是“背景”，不能强到抢走因果感。">
+  <section class="slide" data-title="自然风与草浪" data-notes="先松开鼠标，看远处的草有没有停下来。">
     <div class="kicker">MECHANISM 02</div>
-    <h2>自然风：让草地“呼吸”，但不抢走手势</h2>
+    <h2>没有人经过时，草也会动</h2>
     <div class="body">
       <div class="cols c3">
         <div class="card">
@@ -1432,9 +1432,9 @@ strength += (raw - strength) * (1 - exp(-attack * dt));</pre>
   <!-- ============================================================== -->
   <!-- 18 · 蒲公英生命周期                                            -->
   <!-- ============================================================== -->
-  <section class="slide" data-title="蒲公英生命周期" data-notes="现场种一株，等 0.8s 长出，说明为什么不做瞬间出现。">
+  <section class="slide" data-title="蒲公英生命周期" data-notes="花头变白以后再试着送种。">
     <div class="kicker">MECHANISM 03</div>
-    <h2>一朵蒲公英的一生：0.8 秒长出，70 秒告别</h2>
+    <h2>一株蒲公英能活多久</h2>
     <div class="body">
       <div class="cols c-3-2">
         <div>
@@ -1461,7 +1461,7 @@ if (world.slopeAt(x, z) > 0.44) return;</pre>
         </div>
         <div>
           <ul class="clean">
-            <li><strong>不是瞬间出现。</strong>生长有 0.6–0.9s 的过渡，避免“贴图弹出”。</li>
+            <li><strong>花茎会逐渐长高。</strong>生长有 0.6–0.9s 的过渡，避免“贴图弹出”。</li>
             <li><strong>只有花头种子会张开。</strong>茎、叶、花托保持稳定，种子按各自节奏脱离。</li>
             <li><strong>空花头会补满。</strong>整头从空到满约 20s，飞行中的种子可比茎多停留一会儿。</li>
             <li><strong>上限是体验的一部分。</strong>1 → 3 → 6 → 15 随能力增长，防止画面被塞满。</li>
@@ -1478,9 +1478,9 @@ if (world.slopeAt(x, z) > 0.44) return;</pre>
   <!-- ============================================================== -->
   <!-- 19 · 种子惯性                                                  -->
   <!-- ============================================================== -->
-  <section class="slide" data-title="种子惯性" data-notes="现场快速挥手，种子继续飘；再挥手还能改变轨迹。">
+  <section class="slide" data-title="种子惯性" data-notes="从侧面看，种子离开花头后仍然会往前飘。">
     <div class="kicker">MECHANISM 04</div>
-    <h2>种子的惯性：风改变它，而不是“摆到”目标位置</h2>
+    <h2>风停了，种子还会飘一段</h2>
     <div class="body">
       <div class="cols c-3-2">
         <div>
@@ -1506,7 +1506,7 @@ vel += (localAir - vel) *
           </ul>
           <div class="card card--dark" style="margin-top:10px">
             <h3>体验结果</h3>
-            <p class="small">快速划过后，种子会继续飘、慢慢减速；下一次手指经过附近，还能再次改变它们的轨迹。这让“风”有持续感，而不是一次性动画。</p>
+            <p class="small">快速划过后，种子会继续飘、慢慢减速；下一次手指经过附近，还能再次改变它们的轨迹。</p>
           </div>
         </div>
       </div>
@@ -1516,9 +1516,9 @@ vel += (localAir - vel) *
   <!-- ============================================================== -->
   <!-- 20 · 时间系统                                                  -->
   <!-- ============================================================== -->
-  <section class="slide" data-title="时间系统" data-notes="现场演示旋转到黄昏、夜晚；用键盘 ← → 说明无障碍。">
+  <section class="slide" data-title="时间系统" data-notes="拨动日月时留意地面的影子。">
     <div class="kicker">MECHANISM 05</div>
-    <h2>时间：日月在同一条弧上，光体本身就是手柄</h2>
+    <h2>怎样拨动太阳和月亮</h2>
     <div class="body">
       <div class="cols c-3-2">
         <div>
@@ -1554,19 +1554,13 @@ dir = (-sin a,  cos a * sin 30°,  -cos a * cos 30°)
   <!-- ============================================================== -->
   <!-- 21 · 能力与地标                                                -->
   <!-- ============================================================== -->
-  <section class="slide" data-title="能力与地标判定" data-notes="按表格讲触发条件；强调测试可以程序化触发同样条件。">
+  <section class="slide" data-title="能力与地标判定" data-notes="三床苗圃要三株同时活着，每株单独计数。">
     <div class="kicker">MECHANISM 06</div>
-    <h2>五个地标：每个解谜都有“可读的条件”</h2>
+    <h2>六处地标的过关条件</h2>
     <div class="body">
       <table>
         <thead><tr><th>地标</th><th>坐标</th><th>触发条件</th><th>解锁</th><th>明信片</th></tr></thead>
-        <tbody>
-          <tr><td><strong>老树</strong></td><td class="mono">-34, -22</td><td>在半径 9m 内种下一株蒲公英</td><td>相机</td><td>树下的风</td></tr>
-          <tr><td><strong>风车</strong></td><td class="mono">42, -40</td><td>靠近按 E；三个风眼各有一株活蒲公英</td><td>多株</td><td>风车的回声</td></tr>
-          <tr><td><strong>上升气流</strong></td><td class="mono">42, -34</td><td>靠近按 E（需风车已转动）</td><td>起飞</td><td>塔顶的风</td></tr>
-          <tr><td><strong>枯泉</strong></td><td class="mono">0, 45</td><td>靠近按 E</td><td>恢复</td><td>枯泉的回声</td></tr>
-          <tr><td><strong>北坡日晷</strong></td><td class="mono">-9, 114.5</td><td>解锁时间后，站在 12m 内把时间拨到 0.455–0.525</td><td>时间</td><td>山谷的尽头</td></tr>
-        </tbody>
+        <tbody><tr><td>老树</td><td>-12, -9</td><td>让五粒种子穿过树洞花盏</td><td>相机</td><td>树下的风</td></tr><tr><td>磨坊</td><td>-104, -30</td><td>先拍老树，再按顺序给三只铃各送九粒</td><td>种三株</td><td>风车的回声</td></tr><tr><td>苗圃</td><td>10, -100</td><td>三块种床各有一株，每株送四粒</td><td>起飞</td><td>三块种床</td></tr><tr><td>云圃</td><td>67, -16</td><td>依次落上三座岛，在顶岛种花送十二粒</td><td>通往枯泉</td><td></td></tr><tr><td>枯泉</td><td>-65, 84</td><td>高低花盏各收十粒</td><td>种六株</td><td>泉水回来了</td></tr><tr><td>日晷</td><td>103, 17</td><td>附近留四株花，送十八粒后对齐日影</td><td>拨动日月</td><td>山谷的尽头</td></tr></tbody>
       </table>
 
       <div class="cols c3" style="margin-top:auto">
@@ -1589,9 +1583,9 @@ dir = (-sin a,  cos a * sin 30°,  -cos a * cos 30°)
   <!-- ============================================================== -->
   <!-- 22 · 胶片与明信片                                              -->
   <!-- ============================================================== -->
-  <section class="slide" data-title="胶片相机与明信片" data-notes="现场按 C→安放→P，展示胶片卷缩略图与下载。">
+  <section class="slide" data-title="胶片相机与明信片" data-notes="拍完照打开胶片卷。需要文件时才点下载。">
     <div class="kicker">MECHANISM 07</div>
-    <h2>胶片相机：把“看过的风景”变成可带走的明信片</h2>
+    <h2>照片存在哪里</h2>
     <div class="body">
       <div class="cols c2">
         <div>
@@ -1600,11 +1594,11 @@ dir = (-sin a,  cos a * sin 30°,  -cos a * cos 30°)
             <li>照片 <strong>1920×1080 PNG</strong>；短片 <strong>1280×720 / 5s</strong>，VP9/VP8 → MP4 回退。</li>
             <li>设备太慢、编码器无输出 → 自动改存一张照片，并提示。</li>
             <li>每张照片按“最近的已解锁地标”归属明信片；重复不重复计数。</li>
-            <li>胶片卷最多保留 <strong>12</strong> 条，可逐条下载；只保留本次会话。</li>
+            <li>照片留在本机浏览器里，刷新后还能下载。短片只保留本次最近的十二条。</li>
           </ul>
           <div class="card" style="margin-top:10px">
             <h3>采集细节</h3>
-            <p class="small">快门先强制渲染当前相机的一帧，再复制 WebGL 画布，避免“拍到上一帧”；萤火虫层单独合成，夜色遮罩按天空状态重绘。</p>
+            <p class="small">按下快门后，相机会先画出眼前这一帧，再把萤火虫和当时的天色叠进照片。</p>
           </div>
         </div>
         <div>
@@ -1635,16 +1629,16 @@ checkJourneyEnd(anchors)    <em>// 集齐 → 片尾联系表</em></pre>
   <section class="slide divider" data-title="分节 · 用户体验">
     <div class="kicker">PART 03</div>
     <div class="index">03</div>
-    <h2>用户体验：手势、反馈、降级</h2>
-    <p class="lede">“好玩”往往不是多加功能，而是少一点误触、多一点可预期。</p>
+    <h2>用手玩这片草地</h2>
+    <p class="lede">点草地种花，拖动画面转身。鼠标抬起时，游戏会检查这一段移动了多远。</p>
   </section>
 
   <!-- ============================================================== -->
   <!-- 24 · 手势分区                                                  -->
   <!-- ============================================================== -->
-  <section class="slide" data-title="手势分区与防误触" data-notes="这是体验的核心：拖动不种植、UI 不种植、双手不误触。">
+  <section class="slide" data-title="手势分区与防误触" data-notes="鼠标抬起时，游戏才知道这一下是不是播种。">
     <div class="kicker">UX 01</div>
-    <h2>手势分区：风、视角、移动互不打架</h2>
+    <h2>点一下和拖一下</h2>
     <div class="body">
       <div class="cols c2">
         <div>
@@ -1687,9 +1681,9 @@ checkJourneyEnd(anchors)    <em>// 集齐 → 片尾联系表</em></pre>
   <!-- ============================================================== -->
   <!-- 25 · 移动端                                                    -->
   <!-- ============================================================== -->
-  <section class="slide" data-title="移动端体验" data-notes="用 DevTools 切换设备，演示摇杆与上下文按钮。">
+  <section class="slide" data-title="移动端体验" data-notes="桌面版从 WASD 开始；这里记录触屏的输入方式。">
     <div class="kicker">UX 02</div>
-    <h2>移动端：左手移动，右手观看与行动</h2>
+    <h2>触屏上的两只手</h2>
     <div class="body">
       <div class="cols c-3-2">
         <div>
@@ -1763,9 +1757,9 @@ checkJourneyEnd(anchors)    <em>// 集齐 → 片尾联系表</em></pre>
   <!-- ============================================================== -->
   <!-- 26 · 引导与反馈                                                -->
   <!-- ============================================================== -->
-  <section class="slide" data-title="引导与反馈系统" data-notes="从“第一次进入”到“解锁/拍照/完成”的反馈链路。">
+  <section class="slide" data-title="引导与反馈系统" data-notes="先看单粒穿过盏口，再看送满时花盏打开。">
     <div class="kicker">UX 03</div>
-    <h2>反馈分层：不打断，但绝不让你猜</h2>
+    <h2>怎样知道种子送到了</h2>
     <div class="body">
       <div class="cols c3">
         <div class="card">
@@ -1810,9 +1804,9 @@ checkJourneyEnd(anchors)    <em>// 集齐 → 片尾联系表</em></pre>
   <!-- ============================================================== -->
   <!-- 27 · 无障碍与降级                                              -->
   <!-- ============================================================== -->
-  <section class="slide" data-title="无障碍与降级" data-notes="演示 Tab 聚焦日月，按 Home/End。说明已知未竟事项。">
+  <section class="slide" data-title="无障碍与降级" data-notes="尝试用键盘操作时间控件。">
     <div class="kicker">UX 04</div>
-    <h2>无障碍与降级：不假设设备、不抛弃键盘</h2>
+    <h2>键盘操作与画面出错时的提示</h2>
     <div class="body">
       <div class="cols c2">
         <div>
@@ -1849,9 +1843,9 @@ checkJourneyEnd(anchors)    <em>// 集齐 → 片尾联系表</em></pre>
   <!-- ============================================================== -->
   <!-- 28 · 性能策略                                                  -->
   <!-- ============================================================== -->
-  <section class="slide" data-title="性能策略" data-notes="强调重构没有增加每帧成本；只有事件与低频重渲染。">
+  <section class="slide" data-title="性能策略" data-notes="测试里的软件渲染速度不能代表显卡实机。">
     <div class="kicker">UX 05</div>
-    <h2>性能：把预算花在“看得见的地方”</h2>
+    <h2>草地和天空各花多少绘制时间</h2>
     <div class="body">
       <div class="cols c4">
         <div class="stat"><b>27</b><span>草的 InstancedMesh（5 种 × 3 变体）</span></div>
@@ -1888,9 +1882,9 @@ checkJourneyEnd(anchors)    <em>// 集齐 → 片尾联系表</em></pre>
   <!-- ============================================================== -->
   <!-- 29 · 测试方法                                                  -->
   <!-- ============================================================== -->
-  <section class="slide" data-title="测试方法与覆盖" data-notes="说明为什么不用 Jest：这是 WebGL + 手势，必须在真实浏览器里跑。">
+  <section class="slide" data-title="测试方法与覆盖" data-notes="可以从一次键盘输入跟到一个可见结果。">
     <div class="kicker">VERIFICATION</div>
-    <h2>验证：真实浏览器、真实输入、真实 DOM</h2>
+    <h2>怎样在浏览器里复测</h2>
     <div class="body">
       <div class="cols c-3-2">
         <div>
@@ -1928,9 +1922,9 @@ checkJourneyEnd(anchors)    <em>// 集齐 → 片尾联系表</em></pre>
   <!-- ============================================================== -->
   <!-- 30 · 测试结果与证据                                            -->
   <!-- ============================================================== -->
-  <section class="slide" data-title="测试结果与结构示意" data-notes="先给结果数字，再讲环境限制：软件 WebGL 在 ~50 s 后会回收 GPU 进程；真实 GPU 上长套件可以跑完。示意图用于说明界面结构，不替代视觉验收。">
+  <section class="slide" data-title="测试结果与结构示意" data-notes="这里列的是当次测试结果。">
     <div class="kicker">EVIDENCE</div>
-    <h2>结果：14 / 14 项功能断言通过</h2>
+    <h2>一次测试留下的记录</h2>
     <div class="body">
       <div class="cols c-3-2">
         <div>
@@ -1967,7 +1961,7 @@ checkJourneyEnd(anchors)    <em>// 集齐 → 片尾联系表</em></pre>
 
       <div class="cols c3" style="margin-top:auto">
         <div class="mock">
-          <div class="mock__label">胶片卷 · 会话内最多 12 条</div>
+          <div class="mock__label">胶片卷里的照片和短片</div>
           <div class="mock__film"><i></i><i></i><i></i></div>
           <div class="mock__filmrow"><span>树下的风</span><span>下载 ↓</span></div>
           <div class="mock__filmrow"><span>照片 1920×1080</span><span>短片 5s</span></div>
@@ -2005,9 +1999,9 @@ checkJourneyEnd(anchors)    <em>// 集齐 → 片尾联系表</em></pre>
   <!-- ============================================================== -->
   <!-- 31 · 收益、代价与路线                                          -->
   <!-- ============================================================== -->
-  <section class="slide" data-title="收益、代价与后续" data-notes="诚实讲代价：Vue 体积、无构建的模板体验、旁路契约。">
+  <section class="slide" data-title="收益、代价与后续" data-notes="持久保存照片已经做进当前版本。">
     <div class="kicker">TRADE-OFFS</div>
-    <h2>收益、代价与下一步</h2>
+    <h2>拆开界面以后</h2>
     <div class="body">
       <div class="cols c3">
         <div class="card">
@@ -2033,7 +2027,7 @@ checkJourneyEnd(anchors)    <em>// 集齐 → 片尾联系表</em></pre>
           <ul class="clean">
             <li>可选引入 Vite + SFC，模板可近乎原样迁移。</li>
             <li>增加 <span class="mono">prefers-reduced-motion</span> 与画质手动档。</li>
-            <li>把胶片卷持久化（IndexedDB）与分享链接。</li>
+            <li>照片已用 IndexedDB 保存在本机。目前可以下载文件。</li>
             <li>扩展更多“风的地标”，把能力树变成可探索的地图。</li>
           </ul>
         </div>
@@ -2050,9 +2044,9 @@ checkJourneyEnd(anchors)    <em>// 集齐 → 片尾联系表</em></pre>
   <!-- ============================================================== -->
   <!-- 32 · 交付物与运行                                              -->
   <!-- ============================================================== -->
-  <section class="slide" data-title="交付物与运行" data-notes="现场跑一遍命令；给出评审建议路线。">
+  <section class="slide" data-title="交付物与运行" data-notes="启动器会把目录地址打印在终端里。">
     <div class="kicker">DELIVERY</div>
-    <h2>交付物与运行方式</h2>
+    <h2>在自己的电脑上打开</h2>
     <div class="body">
       <div class="cols c-2-3">
         <div>
@@ -2101,22 +2095,19 @@ python3 tools/e2e/test_experience.py \
   <!-- ============================================================== -->
   <!-- 33 · 结尾                                                      -->
   <!-- ============================================================== -->
-  <section class="slide cover" data-title="谢谢" data-notes="收尾：留 10 分钟问答，准备代码走读入口。">
+  <section class="slide cover" data-title="试玩入口" data-notes="返回目录后可以单独看植物，或者再玩一遍原型。">
     <div class="kicker">END</div>
-    <h1 style="font-size: clamp(48px, 6vw, 88px)">谢谢 · 等风来</h1>
+    <h1 style="font-size: clamp(48px, 6vw, 88px)">去谷里试试</h1>
     <div class="rule"></div>
-    <p class="lede" style="max-width: 30em">
-      风没有形状，我们只是让草、种子和时间替它说话。<br />
-      重构没有改变这句话，只是让说这句话的代码更好读。
-    </p>
+    <p class="lede" style="max-width: 30em">想自己吹散一朵蒲公英，打开目录里的「风的试验田」。想登岛，就从「风灵山谷」开始。</p>
     <div class="meta">
       <div><b>下一步</b>现场演示 · 代码走读 · 问题清单</div>
       <div><b>入口</b><span class="mono">http://localhost:8000/</span></div>
     </div>
   </section>
 
-  <div class="notes-panel" id="notes"><h4>本页备注</h4><div id="notesBody"></div></div>
-  <div class="outline" id="outline"><h3>目录</h3><ol id="outlineList"></ol></div>
+  <div class="notes-panel" id="notes"><button class="panel-close" type="button">关闭备注</button><h4>本页备注</h4><div id="notesBody"></div></div>
+  <div class="outline" id="outline"><button class="panel-close" type="button">关闭选页</button><h3>选择一页</h3><ol id="outlineList"></ol></div>
 </main>
 
 <script>
@@ -2135,13 +2126,34 @@ python3 tools/e2e/test_experience.py \
   let index = 0;
   const pad = (n) => String(n).padStart(2, '0');
 
+  const panels = [outline, notes];
+  function setPanel(active) {
+    for (const panel of panels) {
+      const shown = panel === active;
+      panel.classList.toggle('is-open', shown);
+      document.getElementById(panel.id + 'Toggle').setAttribute('aria-expanded', String(shown));
+    }
+    if (active) active.querySelector('.panel-close').focus();
+  }
+  function closePanel(panel) {
+    setPanel(null);
+    document.getElementById(panel.id + 'Toggle').focus();
+  }
+  function togglePanel(panel) {
+    if (panel.classList.contains('is-open')) closePanel(panel);
+    else setPanel(panel);
+  }
+  for (const panel of panels) {
+    document.getElementById(panel.id + 'Toggle').onclick = () => togglePanel(panel);
+    panel.querySelector('.panel-close').onclick = () => closePanel(panel);
+  }
   slides.forEach((slide, i) => {
     const item = document.createElement('li');
-    item.textContent = `${pad(i + 1)} · ${slide.dataset.title || ''}`;
-    item.addEventListener('click', () => {
-      outline.classList.remove('is-open');
-      go(i);
-    });
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = slide.dataset.title;
+    button.onclick = () => { closePanel(outline); go(i); };
+    item.appendChild(button);
     outlineList.appendChild(item);
   });
 
@@ -2150,6 +2162,8 @@ python3 tools/e2e/test_experience.py \
     slides.forEach((slide, i) => slide.classList.toggle('is-active', i === index));
     progress.style.width = `${((index + 1) / total) * 100}%`;
     page.textContent = `${pad(index + 1)} / ${pad(total)}`;
+    document.getElementById('prev').disabled = index === 0;
+    document.getElementById('next').disabled = index === total - 1;
     notesBody.textContent = slides[index].dataset.notes || DEFAULT_NOTE;
     if (remember) history.replaceState(null, '', `#${index + 1}`);
     const hash = `#${index + 1}`;
@@ -2159,6 +2173,16 @@ python3 tools/e2e/test_experience.py \
   document.addEventListener('keydown', (event) => {
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     const key = event.key;
+    if (key === 'Escape') {
+      const active = panels.find(panel => panel.classList.contains('is-open'));
+      if (active) closePanel(active);
+      else document.querySelector('.demo-home').click();
+      return;
+    }
+    if (key.toLowerCase() === 'o') return togglePanel(outline);
+    if (key.toLowerCase() === 'n') return togglePanel(notes);
+    if (panels.some(panel => panel.classList.contains('is-open'))) return;
+    if (event.target.closest?.('button,a') && ['Enter',' '].includes(key)) return;
     if (['ArrowRight', 'PageDown', ' ', 'Enter'].includes(key)) {
       event.preventDefault();
       go(index + 1);
@@ -2171,15 +2195,9 @@ python3 tools/e2e/test_experience.py \
     } else if (key === 'End') {
       event.preventDefault();
       go(total - 1);
-    } else if (key === 'o' || key === 'O') {
-      outline.classList.toggle('is-open');
-    } else if (key === 'n' || key === 'N') {
-      notes.classList.toggle('is-open');
     } else if (key === 'p' || key === 'P') {
       window.print();
-    } else if (key === 'Escape') {
-      outline.classList.remove('is-open');
-      notes.classList.remove('is-open');
+
     }
   });
 

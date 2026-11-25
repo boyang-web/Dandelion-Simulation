@@ -30,7 +30,7 @@ export default defineComponent({
             playsinline
             preload="metadata"
           ></video>
-          <img v-else :src="item.url" :alt="item.cardTitle || '风之照片'" />
+          <img v-else :src="item.url" :alt="item.cardTitle || '山谷照片'" />
           <figcaption>
             <span>{{ item.cardTitle || item.filename }}</span>
             <a :href="item.url" :download="item.filename">下载</a>
@@ -38,7 +38,7 @@ export default defineComponent({
         </figure>
       </div>
 
-      <p class="film-panel__empty" v-if="!ui.film.items.length">胶片卷还是空的。拍下的照片会保存在此，可随时选择下载。</p>
+      <p class="film-panel__empty" v-if="!ui.film.items.length">还没有照片。拍好后回这里，点照片旁的「下载」就能留一份。</p>
     </section>
   `
 });

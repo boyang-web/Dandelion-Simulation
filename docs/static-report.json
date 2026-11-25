@@ -78,7 +78,7 @@
       "detail": ""
     },
     {
-      "test": "file:// 提示指向启动器",
+      "test": "本地文件可直接进入游戏",
       "ok": true,
       "detail": ""
     },

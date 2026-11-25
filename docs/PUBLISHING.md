@@ -2,7 +2,7 @@
 
 ## 发布方式
 
-项目现在只发布 **GitHub Pages 静态站点**，不再生成单文件包。
+GitHub Pages 直接托管仓库内的静态文件。
 
 - 用户入口：`index.html`（Demo 目录）
 - 开发者入口：`dev.html` → `game.html?dev=1`
@@ -18,12 +18,7 @@
 3. 用户访问 `https://<user>.github.io/<repo>/`；
 4. 开发者访问 `https://<user>.github.io/<repo>/dev.html`。
 
-http(s) 下加载 ES module + importmap；`file://` 下自动切换到
-`vendor/three.global.js + js/bundle.js` 经典包。修改 `js/*.js` 后要重建经典包：
-
-```bash
-python3 tools/build-classic-bundle.py
-```
+目录和游戏都用相对路径，从项目子目录也能打开。本地试玩直接打开 index.html。通过启动器运行 HTTP 服务时，页面会加载同一场景的源码模块。
 
 ## 体积与运行成本
 

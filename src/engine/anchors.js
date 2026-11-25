@@ -15,7 +15,7 @@ const UP = new THREE.Vector3(0, 1, 0);
 const ANCHOR_DEFS = [
   {
     id: 'oldTree',
-    story: '山谷的风断了。在树前种一株蒲公英，朝树洞花盏滚过花旁，把绒种吹进树洞。',
+    story: '老树的花盏空着。在树根旁种蒲公英，等白绒长好，再朝树洞滚过花旁。',
     label: '老树',
     sub: '第一阵风',
     ...ROUTE.oldTree,
@@ -25,33 +25,33 @@ const ANCHOR_DEFS = [
     unlock: 'camera',
     verb: '唤醒老树',
     color: '#d8b98a',
-    toast: '老树醒了 · 解锁相机',
-    solveToast: '老树醒了 · 解锁相机',
+    toast: '老树醒了。拿上相机，给它拍一张。',
+    solveToast: '老树醒了。拿上相机，给它拍一张。',
     real: true,
     postcard: 'tree',
     cardTitle: '树下的风'
   },
   {
     id: 'windmill',
-    story: '沿白花找到磨坊。从不同方向送出绒种，依次点亮叶轮四周的三个风眼。',
+    story: '顺着路边的白花去磨坊。三只风铃依次亮起，从亮着的那只开始送种。',
     label: '风车',
-    sub: '三重风眼',
+    sub: '三只风铃',
     ...ROUTE.windmill,
     radius: 10,
     action: 'windmill',
     requires: 'camera',
     unlock: 'multiPlant',
-    verb: '唤醒种子合唱',
+    verb: '吹响三只风铃',
     color: '#b7c3cf',
-    toast: '风车转了 · 解锁多株',
-    solveToast: '风车转了 · 解锁同时种植多株',
+    toast: '现在可以同时种三株花了。',
+    solveToast: '风车转起来了。现在可以同时种三株花。',
     real: true,
     postcard: 'windmill',
     cardTitle: '风车的回声'
   },
   {
     id: 'updraft',
-    story: '看浮岛垂下的根。把蒲公英种在岛下，对着悬空风眼滚过花旁，让绒种搭上上升气流。',
+    story: '苗圃有三块种床，每块种一株。让每株花各送四粒种子到中间的花盏。',
     label: '三床苗圃',
     sub: '借风升起',
     ...ROUTE.updraft,
@@ -62,20 +62,20 @@ const ANCHOR_DEFS = [
     unlock: 'lift',
     verb: '借风升起',
     color: '#cfe0ec',
-    toast: '风羽入手 · 解锁起飞',
-    solveToast: '风羽入手 · 解锁起飞',
+    toast: '你能飞了。按住升空，松开落地。',
+    solveToast: '你能飞了。按住升空，松开落地。',
     postcard: 'tower',
-    cardTitle: '塔顶的风'
+    cardTitle: '三块种床'
   },
   {
     id: 'skyGarden', label: '云圃', sub: '登岛播种', ...ROUTE.skyGarden,
     radius: 8, action: 'plant', requires: 'lift', real: true, color: '#bfe3bc',
-    story: '飞上三座岩台，依次落脚点亮石碑。在最高的云圃种花，把绒种送进花盏。',
-    solveToast: '云圃开花了 · 去东岸唤醒泉水'
+    story: '从最低的一座开始，每座岩台都落一次脚。最后在顶上种花，把种子吹进花盏。',
+    solveToast: '顶上的花开了。下一站去枯泉。'
   },
   {
     id: 'spring',
-    story: '枯泉两岸各有一枚风眼。低处从地面送种，高处要先乘风升空，再向高处风眼掠过花旁。',
+    story: '泉边一高一低两只花盏，各收十粒。低处贴地滚，高处要飞起来，从花旁掠过。',
     label: '枯泉',
     sub: '回种',
     ...ROUTE.spring,
@@ -85,15 +85,15 @@ const ANCHOR_DEFS = [
     unlock: 'restore',
     verb: '复苏枯泉',
     color: '#a9c7a7',
-    toast: '枯泉复苏 · 解锁种子恢复',
-    solveToast: '枯泉复苏 · 解锁种子恢复',
+    toast: '泉里有水了。现在可以同时养六株花。',
+    solveToast: '泉里有水了。现在可以同时养六株花。',
     real: true,
     postcard: 'spring',
-    cardTitle: '枯泉的回声'
+    cardTitle: '泉水回来了'
   },
   {
     id: 'sundial',
-    story: '把最后一粒绒种送进日晷，再拨动日月，让光落在石盘刻痕上。',
+    story: '在日晷旁留下四株活花，往花盏送满十八粒种子。拖动太阳或月亮，让影子对准石盘上的刻痕。',
     label: '山脊日晷',
     sub: '日落刻度',
     ...ROUTE.sundial,

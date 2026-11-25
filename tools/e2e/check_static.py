@@ -72,7 +72,7 @@ def main():
 
     # shell assets
     css = re.search(r'<link rel="stylesheet" href="\./([^"?]+)', index)
-    entry = re.search(r'<script type="module" src="\./([^"?]+)', index)
+    entry = re.search(r'data-module="\./([^"?]+)', index)
     check("入口样式存在", bool(css) and (ROOT / css.group(1)).exists(), css.group(1) if css else None)
     check("入口模块存在", bool(entry) and (ROOT / entry.group(1)).exists(), entry.group(1) if entry else None)
     check("game.html 有挂载点", 'id="app"' in index)
@@ -114,7 +114,7 @@ def main():
         text = launcher.read_text(encoding="utf-8")
         check("启动器调用本地服务器", "tools/serve_local.py" in text)
         check("启动器可禁用自动开窗（便于自测）", "NO_OPEN" in (ROOT / "tools/serve_local.py").read_text())
-    check("file:// 提示指向启动器", "启动.command" in index)
+    check("本地文件可直接进入游戏", 'data-offline="game"' in index and (SRC / "engine/bundle-game.js").exists())
 
     # labs pages
     lab_problems = []
